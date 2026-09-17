@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import json
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -16,6 +15,9 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from realesrgan_mps import RealESRGANMPS
+
+EXPECTED_WEIGHTS_SHA256 = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
 
 
 def sha256(path: Path) -> str:
@@ -42,8 +44,6 @@ def main() -> None:
     args = parser.parse_args()
 
     weights = args.weights or args.runtime / "weights" / "RealESRGAN_x4plus.pth"
-    basicsr_root = args.runtime / "BasicSR"
-    realesrgan_root = args.runtime / "Real-ESRGAN"
     require_apple_silicon(
         [args.source, args.approval, args.output.parent, args.runtime, weights],
         check_mps=True,
@@ -60,19 +60,19 @@ def main() -> None:
     source_hash = sha256(args.source)
     if approval.get("master_sha256") != source_hash:
         parser.error("Semantic master changed after native-pixel approval")
-    for required in (weights, basicsr_root / "basicsr", realesrgan_root / "realesrgan"):
-        if not required.exists():
-            parser.error(f"Missing verified Real-ESRGAN runtime component: {required}")
+    if not weights.is_file():
+        parser.error(f"Missing verified Real-ESRGAN model: {weights}")
+    weights_hash = sha256(weights)
+    if weights_hash != EXPECTED_WEIGHTS_SHA256:
+        parser.error(
+            f"Unexpected Real-ESRGAN model hash {weights_hash}; expected {EXPECTED_WEIGHTS_SHA256}"
+        )
     if args.tile < 64 or args.tile_pad < 0:
         parser.error("Tile must be at least 64 pixels and tile padding must be non-negative")
 
-    sys.path.insert(0, str(basicsr_root))
-    sys.path.insert(0, str(realesrgan_root))
     import cv2
     import numpy as np
     import torch
-    from basicsr.archs.rrdbnet_arch import RRDBNet
-    from realesrgan import RealESRGANer
 
     if not torch.backends.mps.is_available():
         parser.error("Apple MPS is unavailable; CPU fallback is forbidden")
@@ -87,26 +87,13 @@ def main() -> None:
 
     input_rgb = np.asarray(source_original.convert("RGB"), dtype=np.uint8)
     input_bgr = cv2.cvtColor(input_rgb, cv2.COLOR_RGB2BGR)
-    model = RRDBNet(
-        num_in_ch=3,
-        num_out_ch=3,
-        num_feat=64,
-        num_block=23,
-        num_grow_ch=32,
-        scale=4,
-    )
-    upsampler = RealESRGANer(
-        scale=4,
-        model_path=str(weights),
-        model=model,
+    upsampler = RealESRGANMPS(
+        model_path=weights,
         tile=args.tile,
         tile_pad=args.tile_pad,
-        pre_pad=0,
-        half=False,
-        device=torch.device("mps"),
     )
     started = time.time()
-    output_bgr, _ = upsampler.enhance(input_bgr, outscale=scale_x)
+    output_bgr = upsampler.enhance(input_bgr, outscale=scale_x)
     if (output_bgr.shape[1], output_bgr.shape[0]) != (args.target_width, args.target_height):
         parser.error(
             f"Model produced {(output_bgr.shape[1], output_bgr.shape[0])}, expected "
@@ -135,7 +122,8 @@ def main() -> None:
         "output": str(args.output.resolve()),
         "output_sha256": sha256(args.output),
         "weights": str(weights.resolve()),
-        "weights_sha256": sha256(weights),
+        "weights_sha256": weights_hash,
+        "runtime_implementation": "scripts/realesrgan_mps.py",
         "device": "mps",
         "mps_fallback": False,
         "torch": torch.__version__,

@@ -17,7 +17,7 @@ The MPS runner has no CPU, CUDA, Core ML, or interpolation-only fallback. It rej
 - Python 3.9 or newer
 - PyTorch with `torch.backends.mps.is_available()` returning `True`
 
-The validated environment used Python 3.9.6, PyTorch 2.8.0, torchvision 0.23.0, NumPy 2.0.2, Pillow 11.3.0, and OpenCV 5.0.0.
+The validated environment used Python 3.9.6, PyTorch 2.8.0, NumPy 2.0.2, Pillow 11.3.0, and OpenCV 5.0.0.
 
 ## Install as a Codex skill
 
@@ -30,7 +30,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-The repository includes pinned upstream source snapshots for BasicSR and Real-ESRGAN plus the official `RealESRGAN_x4plus.pth` weight. Core ML Tools is not used or required.
+The repository includes a minimal MPS inference runtime adapted from pinned BasicSR and Real-ESRGAN revisions plus the official `RealESRGAN_x4plus.pth` weight. It intentionally excludes training code, CUDA extensions, C++ kernels, MATLAB tools, tests, examples, and unrelated models. Core ML Tools is not used or required.
 
 ## Workflow
 
@@ -147,10 +147,11 @@ Do not approve a result from a fit-to-screen preview. Repair failed semantic til
 
 - `SKILL.md` — Codex skill entry point and hard workflow contract
 - `references/` — prompt system, defect-repair modules, scene modules, and Apple runtime contract
-- `scripts/` — preflight, tile state, registration, protected-region restoration, approval, MPS inference, and verification
-- `runtime/` — pinned BasicSR and Real-ESRGAN source snapshots and the verified x4 model weight
+- `scripts/` — preflight, tile state, registration, protected-region restoration, approval, minimal MPS inference, and verification
+- `runtime/weights/` — the verified x4 model weight
+- `third_party/licenses/` — preserved upstream license texts
 - `agents/openai.yaml` — Codex UI metadata
 
 ## License and third-party software
 
-Project-authored files are licensed under Apache-2.0. Bundled third-party components retain their own licenses and attribution; see [THIRD_PARTY.md](THIRD_PARTY.md), `runtime/BasicSR/LICENSE.txt`, and `runtime/Real-ESRGAN/LICENSE`.
+Project-authored files are licensed under Apache-2.0. Adapted third-party code and the model retain their licenses and attribution; see [THIRD_PARTY.md](THIRD_PARTY.md) and `third_party/licenses/`.

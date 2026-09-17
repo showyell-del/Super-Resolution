@@ -24,7 +24,7 @@ At exactly 50 GiB or below, stop. Do not begin and hope swap remains bounded. Do
 
 ## Verified MPS executor
 
-Use `scripts/apple_mps_upscale.py`. Its bundled runtime contains the verified BasicSR and Real-ESRGAN sources plus `RealESRGAN_x4plus.pth`. The command requires a hash-bound semantic-master approval created by `scripts/approve_semantic_master.py`; it must reject missing approvals, approvals for another file, and masters changed after review.
+Use `scripts/apple_mps_upscale.py`. Its minimal Python runtime contains only the RRDBNet and tiled Real-ESRGAN inference path required by `RealESRGAN_x4plus.pth`; training code and non-MPS accelerator kernels are intentionally excluded. The command requires a hash-bound semantic-master approval created by `scripts/approve_semantic_master.py`; it must reject missing approvals, approvals for another file, and masters changed after review.
 
 - Set `PYTORCH_ENABLE_MPS_FALLBACK=0` before importing PyTorch.
 - Require `torch.device("mps")`; abort if MPS is unavailable.
