@@ -1,0 +1,4 @@
+interface:
+  display_name: "语义细节超分"
+  short_description: "在 M 系列 Mac 上用 MPS 与真实 AI 模型完成语义重建和超分"
+  default_prompt: "使用 $semantic-detail-upscale 在通过存储预检后，先修复并验收线条、透视、重复结构、发光体、遮挡和有机形态，再单独重建语义材质；仅对通过原生像素审批的母版使用 Apple MPS 与 Real-ESRGAN 输出高分辨率成品。"
