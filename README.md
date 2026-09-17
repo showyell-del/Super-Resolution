@@ -1,4 +1,4 @@
-# Semantic Detail Upscale
+# Super-Resolution
 
 A reusable Codex skill and deterministic image pipeline for structure-first semantic reconstruction followed by Apple-Silicon neural super-resolution.
 
@@ -22,8 +22,8 @@ The validated environment used Python 3.9.6, PyTorch 2.8.0, torchvision 0.23.0, 
 ## Install as a Codex skill
 
 ```bash
-git clone https://github.com/showyell-del/semantic-detail-upscale.git ~/.codex/skills/semantic-detail-upscale
-cd ~/.codex/skills/semantic-detail-upscale
+git clone https://github.com/showyell-del/Super-Resolution.git ~/.codex/skills/super-resolution
+cd ~/.codex/skills/super-resolution
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip

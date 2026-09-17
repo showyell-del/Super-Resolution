@@ -67,9 +67,9 @@ def volume_report(paths: list[Path], minimum_gib: int = MIN_FREE_GIB) -> list[di
 
 def require_apple_silicon(paths: list[Path], check_mps: bool = False) -> dict:
     if platform.system() != "Darwin":
-        raise PreflightError("semantic-detail-upscale requires macOS")
+        raise PreflightError("Super-Resolution requires macOS")
     if platform.machine() != "arm64":
-        raise PreflightError("semantic-detail-upscale requires an Apple-Silicon arm64 Mac")
+        raise PreflightError("Super-Resolution requires an Apple-Silicon arm64 Mac")
     brand = cpu_brand()
     if "Apple M" not in brand:
         raise PreflightError(f"An Apple M-series processor is required; detected {brand!r}")

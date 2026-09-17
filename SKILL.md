@@ -1,9 +1,9 @@
 ---
-name: semantic-detail-upscale
+name: super-resolution
 description: Reconstruct scene-appropriate semantic detail in AI-generated, compressed, scanned, or over-smoothed raster images before delivering 6K, 8K, 12K, or larger outputs on an Apple M-series Mac with PyTorch MPS and Real-ESRGAN. Use when a nominally high-resolution image still lacks meaningful subject, material, or style detail under close inspection; not for ordinary resize-only requests or non-Apple-Silicon computers.
 ---
 
-# Semantic Detail Upscale
+# Super-Resolution
 
 Treat resolution and detail as separate problems. A larger pixel grid is not completion when the source lacks meaningful information.
 
