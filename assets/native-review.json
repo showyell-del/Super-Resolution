@@ -1,0 +1,40 @@
+{
+  "review_scale": "100% native pixels",
+  "subject_report_required": true,
+  "global_checks": {
+    "geometry_and_perspective": "pass",
+    "line_topology_and_edge_ownership": "pass",
+    "repeated_structures": "pass",
+    "emitters_reflections_and_bloom": "not_applicable",
+    "organic_support_topology": "not_applicable",
+    "far_field_and_depth_falloff": "pass",
+    "protected_content": "pass"
+  },
+  "regions": [
+    {
+      "name": "highest-risk-region",
+      "box": [0, 0, 512, 512],
+      "status": "pass",
+      "note": "Describe the concrete native-pixel evidence."
+    }
+  ],
+  "people_review": {
+    "checks": {
+      "eyes_and_gaze": "pass",
+      "mouth_and_teeth": "pass",
+      "skin_texture": "pass",
+      "identity_and_distinctness": "pass",
+      "hair_hands_and_anatomy": "pass",
+      "wardrobe_and_material_integration": "pass"
+    },
+    "subjects": [
+      {
+        "id": "person-001",
+        "status": "pass",
+        "delivery_strategy": "final_registered_repair",
+        "note": "Describe the inspected subject and repair evidence."
+      }
+    ]
+  },
+  "reviewer_note": "No known semantic defect remains before MPS."
+}

@@ -45,6 +45,12 @@ def main() -> None:
             x, y, width, height = (int(item[key]) for key in ("x", "y", "width", "height"))
         except (KeyError, TypeError, ValueError) as exc:
             parser.error(f"Region {name!r} needs integer x,y,width,height: {exc}")
+        subject_ids = item.get("subject_ids", [])
+        if not isinstance(subject_ids, list) or any(not str(value).strip() for value in subject_ids):
+            parser.error(f"Region {name!r} subject_ids must be a list of non-empty IDs")
+        subject_ids = [str(value).strip() for value in subject_ids]
+        if len(subject_ids) != len(set(subject_ids)):
+            parser.error(f"Region {name!r} contains duplicate subject_ids")
         if x < 0 or y < 0 or width < 1 or height < 1 or x + width > image.width or y + height > image.height:
             parser.error(f"Region {name!r} exceeds the image")
         left = max(0, x - args.context)
@@ -57,6 +63,7 @@ def main() -> None:
         prepared.append({
             "name": name,
             "category": item.get("category", "semantic"),
+            "subject_ids": subject_ids,
             "target_box": [x, y, width, height],
             "crop_box": [left, top, right - left, bottom - top],
             "input": filename,

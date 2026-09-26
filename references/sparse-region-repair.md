@@ -1,14 +1,14 @@
-# Sparse region repair
+# Registered repair pack
 
-Use sparse repair when a whole-frame semantic pass cannot allocate enough pixels to small complex subjects, or when final native-pixel inspection reveals isolated semantic failures.
+Use local regions for small subjects or isolated semantic failures.
 
-1. Define only failed regions with `assets/regions.json`; include enough surrounding body, architecture, or stage context to preserve scale and lighting.
-2. Run `prepare_regions.py` to extract context crops and a manifest.
-3. Reconstruct one region at a time using the global scene anchor and relevant subject IDs. The accepted output must keep the source crop's exact aspect ratio.
-4. Inspect the region at native pixels, then record it with `record_region.py` and a concrete review note.
-5. Run `composite_regions.py`. It registers every region to the source, rejects excessive translation or scale drift, and feather-blends only accepted regions.
-6. Rebuild the contact sheet and all downstream approvals from the new composite. Any earlier SHA-bound report is invalid.
+1. List every required region before MPS. Include enough body or scene context for pose, scale, perspective, light, and registration.
+2. Add subject_ids to every people region.
+3. Extract with prepare_regions.py.
+4. Generate each region at high density, inspect it at native pixels, and record it with record_region.py.
+5. Bind the accepted manifest during semantic approval.
+6. Run MPS once.
+7. Composite the full repair pack once onto the enlarged base with composite_regions.py --base.
+8. Run one final native-pixel review and final checksum.
 
-Preferred order is semantic repair before neural enlargement. A final-size sparse repair is allowed only when it does not resize the canvas and when its region, registration, mask, composite report, and new final checksum are included in delivery evidence.
-
-Never replace an entire image to fix a few small people. Never hide registration errors with blur, grain, glow, or compression.
+Do not shrink repair outputs into the semantic master. Do not replace a whole image for a local failure. Do not hide registration drift with blur, grain, glow, or compression.

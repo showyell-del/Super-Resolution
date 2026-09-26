@@ -1,46 +1,32 @@
-# Camera-real people reconstruction
+# Camera-real people
 
-Use this module whenever a face or person must withstand native-pixel inspection. Resolution alone cannot recover identity or anatomy that occupies too few source pixels.
+Use this module whenever a person must survive native-pixel inspection.
 
-## Semantic density gate
+## Density routing
 
-Measure face width in the image entering the semantic editor.
+Measure face width in the semantic master.
 
-- **120–200 px:** preferred working range for a face that must look individually photographed.
-- **80–119 px:** whole-frame editing is allowed only when the person is secondary and the native crop already contains stable anatomy. Inspect every face separately.
-- **48–79 px:** use a contextual group or individual region. Whole-frame editing is prohibited for acceptance-critical faces.
-- **Below 48 px:** individual or small-group reconstruction is mandatory. Treat the output as creative reconstruction, not restoration of the real person's identity.
+- **120 px or more:** preferred.
+- **80–119 px:** allowed only when anatomy is already stable.
+- **48–79 px:** mandatory contextual group or individual repair.
+- **Below 48 px:** creative reconstruction unless a sharper same-person reference exists.
 
-If a face cannot be brought into the preferred range without losing pose and scene context, use multiple passes: contextual group repair first, then a narrower individual face-and-body repair.
+Thresholds are fixed. Do not pass a report by lowering them.
 
-## Truth modes
+Create all required repairs as one plan before MPS. Group adjacent people only when every face reaches working density and enough body and scene context remains. Otherwise use individual regions. Keep accepted repair outputs at high density and composite them once onto the enlarged canvas; never shrink them into the semantic master.
 
-- **Identity restoration:** allowed only when a sharper reference of the same person exists. Preserve the reference identity; do not infer it from a tiny face.
-- **Creative people reconstruction:** create distinct, plausible people while preserving count, role, pose, wardrobe, age range, expression, gaze, lighting, and placement. Do not claim recovered identity.
-- **Crowd/background continuity:** preserve head count, silhouettes, depth, and action. Do not force portrait detail into people that should remain optically unresolved.
+## Truth and identity
 
-Record every acceptance-critical person in `assets/subject-manifest.json`. Give each a stable ID and visible distinguishing traits. Prompts must reference those IDs rather than saying only “different faces”.
+- **Identity restoration:** requires a sharper reference of the same person.
+- **Creative reconstruction:** preserve count, role, pose, wardrobe, age range, expression, gaze, light, and placement while creating distinct plausible people.
+- **Background continuity:** preserve silhouettes and action without forcing portrait detail into optical blur.
 
-## Prompt construction
+Record stable IDs and visible distinguishing traits in the subject manifest.
 
-State the capture conditions and physical relationships, not quality slogans:
+## Compact prompt clause
 
-1. Preserve the exact camera position, focal length impression, stage geometry, person count, blocking, poses, wardrobe, and warm key/fill/rim-light directions.
-2. Reconstruct each listed subject as a distinct individual with different facial proportions, eye spacing, brow shape, nose bridge, lip shape, jawline, hairline, skin tone variation, age cues, and expression.
-3. Resolve two anatomically complete eyes with aligned gaze, natural eyelids and catchlights; a coherent nose and philtrum; closed lip contours; ears, jaw, hairline, neck, hands, and fingers appropriate to distance and pose.
-4. Preserve natural skin translucency, fine tonal variation, restrained pores, fabric weave, seams, folds, and believable hair groups. Keep detail subordinate to focus and depth of field.
-5. Preserve photographic imperfections: modest sensor noise, lens softness away from focus, highlight roll-off, chromatic restraint, and low-frequency atmospheric depth.
+> Preserve count, subject IDs, blocking, pose, gaze, expression, wardrobe, body proportions, camera, focus, and light. Give each subject distinct facial proportions. Reconstruct two complete eyes with eyelids, iris, pupil, sclera, aligned gaze, and restrained catchlights; coherent nose and philtrum; lips with real volume; and, when the mouth is open, bounded oral depth with plausible teeth and tongue rather than a black cavity. Preserve skin plane variation and fine natural texture without global smoothing. Preserve hair groups, ears, jaw, neck, hands, garment construction, seams, weave, folds, and stage integration at distance-appropriate detail. No cloned faces, empty eyes, black mouth holes, wax skin, beauty-filter blur, pasted heads, fused fingers, halos, or cutout edges.
 
-Negative constraints: no cloned faces, beauty-filter skin, wax figures, doll eyes, painted eyelashes, duplicated smiles, blank eyes, fused fingers, extra limbs, melted instruments, repeated hair templates, excessive pores, cutout edges, HDR halos, or synthetic microcontrast.
+## Mandatory review
 
-## Native-pixel acceptance
-
-Run `build_contact_sheet.py` on the exact semantic master. The automated report is necessary but not sufficient. At 100% inspect:
-
-- count and ID correspondence;
-- two valid eyes, aligned gaze, eyelids, teeth/lips, ears, jaw, hairline, neck, hands, and limb anatomy;
-- distinct facial geometry across people, not only different hair or clothing;
-- lighting direction, skin response, depth of field, and edge integration;
-- absence of doubled contours, pasted faces, halos, or inconsistent scale.
-
-Reject the master when any acceptance-critical subject fails. Do not rely on Real-ESRGAN to repair semantic anatomy.
+The contact-sheet tool is only a measurable precheck. In the native-pixel review, mark all six checks as pass: eyes/gaze, mouth/teeth, skin texture, identity/distinctness, hair/hands/anatomy, and wardrobe/material integration. Review every subject with a concrete note and either semantic_master or final_registered_repair.

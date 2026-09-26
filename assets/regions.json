@@ -1,6 +1,8 @@
 [
   {
     "name": "region-001",
+    "category": "people",
+    "subject_ids": ["person-001"],
     "x": 0,
     "y": 0,
     "width": 512,

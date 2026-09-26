@@ -1,35 +1,47 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
     {
-      "id": "multi-face-stage",
-      "fixture": "creative stage image with at least 12 people and several faces below 80 px",
-      "must_route_to": ["subject manifest", "sparse region repair", "contact sheet", "manual anatomy review"],
-      "must_reject": ["whole-frame-only repair", "cloned faces", "blank eyes", "identity restoration claim without references"]
+      "id": "sharp-but-malformed-face",
+      "fixture": "face crop with high Laplacian score but empty eyes, black mouth cavity, or wax skin",
+      "must_route_to": ["automated precheck", "structured manual people review"],
+      "must_reject": ["automatic semantic pass from sharpness", "MPS before anatomy approval"]
     },
     {
-      "id": "architecture-night",
-      "fixture": "night architecture with repeated grids, luminous edges, glass, foliage, and reflections",
-      "must_route_to": ["structure-first repair", "line-family review", "registration"],
-      "must_reject": ["bent grids", "floating light strips", "bloom replacing structure", "decorative pseudo-detail"]
+      "id": "tiny-face-repair",
+      "fixture": "acceptance-critical face below 80 px in the semantic master",
+      "must_route_to": ["final_registered_repair", "accepted repair manifest", "single final-scale composite"],
+      "must_reject": ["lowered threshold", "repair downsampled into semantic master", "identity recovery claim without reference"]
+    },
+    {
+      "id": "dense-stage-budget",
+      "fixture": "stage image with many people, clothing, screen content, and environment detail",
+      "must_route_to": ["one complete defect inventory", "grouped repair plan", "one MPS invocation", "one repair-pack composite"],
+      "must_reject": ["recursive whole-image regeneration", "serial discovery of defects", "repeated MPS runs"]
+    },
+    {
+      "id": "smeared-materials",
+      "fixture": "sharp nominally high-resolution image with textureless fabric, foliage blobs, melted lines, or empty surfaces",
+      "must_route_to": ["native-pixel scene review", "construction-specific prompt"],
+      "must_reject": ["quality adjectives only", "noise overlay", "surface sharpness as semantic proof"]
     },
     {
       "id": "protected-branding",
-      "fixture": "image containing exact text and a logo",
+      "fixture": "image containing exact text, logo, interface, or diagram",
       "must_route_to": ["protected mask", "deterministic restoration"],
       "must_reject": ["generative text recreation", "changed logo geometry"]
     },
     {
-      "id": "nonstandard-aspect-to-4k",
-      "fixture": "1653x952 source requested at 3840x2160",
+      "id": "nonstandard-aspect",
+      "fixture": "source and requested output use different aspect ratios",
       "must_route_to": ["exact rational crop", "crop report"],
       "must_reject": ["stretching", "aspect mismatch", "silent excessive crop"]
     },
     {
       "id": "low-runtime-volume",
-      "fixture": "system volume at or below 50 GiB and work volume above 50 GiB",
+      "fixture": "any used volume has at most 50 GiB free",
       "must_route_to": ["blocked preflight", "verified runtime staging", "preflight rerun"],
-      "must_reject": ["model load on low-space volume", "CPU fallback", "lower-resolution fallback"]
+      "must_reject": ["model load", "automatic deletion", "CPU or lower-resolution fallback"]
     }
   ]
 }

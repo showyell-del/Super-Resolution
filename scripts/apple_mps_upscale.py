@@ -53,7 +53,7 @@ def main() -> None:
     if not args.approval.is_file():
         parser.error(f"Missing semantic-master approval: {args.approval}")
     approval = json.loads(args.approval.read_text(encoding="utf-8"))
-    if approval.get("approved") is not True:
+    if approval.get("approval_version") != 2 or approval.get("approved") is not True:
         parser.error("Semantic master is not approved")
     if Path(approval.get("master", "")).resolve() != args.source.resolve():
         parser.error("Approval belongs to a different semantic master")

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Build a native-pixel subject contact sheet and flag blur or likely duplicates."""
+"""Build a native-pixel subject board and measurable precheck.
+
+This tool deliberately cannot approve facial semantics. Sharp malformed eyes or
+mouths can score highly, so a separate structured human review is mandatory.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,9 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from apple_preflight import require_apple_silicon
+
+
+STAGE_MIN_FACE_WIDTH = {"semantic": 80, "repair": 120, "final": 120}
 
 
 def sha256(path: Path) -> str:
@@ -38,12 +45,13 @@ def main() -> None:
     parser.add_argument("image", type=Path)
     parser.add_argument("subjects", type=Path, help="JSON list containing id and face_box")
     parser.add_argument("output_dir", type=Path)
-    parser.add_argument("--min-edit-face-width", type=int, default=80)
+    parser.add_argument("--stage", choices=sorted(STAGE_MIN_FACE_WIDTH), default="semantic")
     parser.add_argument("--min-sharpness", type=float, default=45.0)
     parser.add_argument("--max-hash-distance", type=int, default=7)
     parser.add_argument("--cell-size", type=int, default=256)
     args = parser.parse_args()
 
+    min_face_width = STAGE_MIN_FACE_WIDTH[args.stage]
     require_apple_silicon([args.image, args.subjects, args.output_dir.parent])
     image = Image.open(args.image).convert("RGB")
     manifest = json.loads(args.subjects.read_text(encoding="utf-8"))
@@ -72,14 +80,20 @@ def main() -> None:
         gray = cv2.cvtColor(np.asarray(crop), cv2.COLOR_RGB2GRAY)
         sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
         hashes[subject_id] = difference_hash(crop)
+        failures = []
+        if width < min_face_width:
+            failures.append(f"face width below {min_face_width}px {args.stage} floor")
+        if sharpness < args.min_sharpness:
+            failures.append(f"sharpness below {args.min_sharpness}")
         entries.append({
             "id": subject_id,
             "face_box": box,
-            "crop": str(crop_path),
+            "crop": str(crop_path.resolve()),
             "face_width": width,
-            "requires_local_repair": width < args.min_edit_face_width,
+            "requires_local_repair": width < min_face_width,
             "sharpness": sharpness,
             "sharpness_pass": sharpness >= args.min_sharpness,
+            "automated_failures": failures,
             "identity": subject.get("identity", {}),
         })
 
@@ -90,10 +104,15 @@ def main() -> None:
             distance = bin(hashes[left] ^ hashes[right]).count("1")
             if distance <= args.max_hash_distance:
                 duplicate_pairs.append({"subjects": [left, right], "hash_distance": distance})
+                for subject_id in (left, right):
+                    other = right if subject_id == left else left
+                    next(entry for entry in entries if entry["id"] == subject_id)["automated_failures"].append(
+                        f"likely duplicate with {other}"
+                    )
 
     columns = min(5, len(entries))
     rows = math.ceil(len(entries) / columns)
-    label_height = 40
+    label_height = 48
     sheet = Image.new("RGB", (columns * args.cell_size, rows * (args.cell_size + label_height)), "white")
     draw = ImageDraw.Draw(sheet)
     for index, entry in enumerate(entries):
@@ -104,16 +123,26 @@ def main() -> None:
         left = column * args.cell_size + (args.cell_size - crop.width) // 2
         top = row * (args.cell_size + label_height) + (args.cell_size - crop.height) // 2
         sheet.paste(crop, (left, top))
-        label = f"{entry['id']}  w={entry['face_width']}  sharp={entry['sharpness']:.1f}"
-        draw.text((column * args.cell_size + 6, row * (args.cell_size + label_height) + args.cell_size + 8), label, fill="black")
+        state = "PRECHECK OK" if not entry["automated_failures"] else "REPAIR"
+        label = f"{entry['id']}  w={entry['face_width']}  sharp={entry['sharpness']:.1f}\n{state}"
+        draw.multiline_text(
+            (column * args.cell_size + 6, row * (args.cell_size + label_height) + args.cell_size + 5),
+            label,
+            fill="black",
+            spacing=2,
+        )
     sheet_path = args.output_dir / "contact-sheet.png"
     sheet.save(sheet_path, compress_level=2)
 
-    failures = []
-    failures.extend(f"{entry['id']}: face width below {args.min_edit_face_width}" for entry in entries if entry["requires_local_repair"])
-    failures.extend(f"{entry['id']}: sharpness below {args.min_sharpness}" for entry in entries if not entry["sharpness_pass"])
-    failures.extend(f"likely duplicate: {pair['subjects'][0]} / {pair['subjects'][1]}" for pair in duplicate_pairs)
+    failures = [
+        f"{entry['id']}: {failure}"
+        for entry in entries
+        for failure in entry["automated_failures"]
+    ]
     report = {
+        "schema_version": 2,
+        "stage": args.stage,
+        "minimum_face_width": min_face_width,
         "image": str(args.image.resolve()),
         "image_sha256": sha256(args.image),
         "subject_manifest": str(args.subjects.resolve()),
@@ -121,7 +150,12 @@ def main() -> None:
         "contact_sheet": str(sheet_path.resolve()),
         "subjects": entries,
         "duplicate_pairs": duplicate_pairs,
-        "pass": not failures,
+        "automated_pass": not failures,
+        "manual_semantic_review_required": True,
+        "manual_review_warning": (
+            "Sharpness does not validate eyes, mouth, skin, identity, anatomy, or materials. "
+            "This report can never approve people by itself."
+        ),
         "failures": failures,
     }
     report_path = args.output_dir / "contact-sheet-report.json"
@@ -129,7 +163,7 @@ def main() -> None:
     print(sheet_path)
     print(report_path)
     if failures:
-        parser.exit(2, "CONTACT_SHEET_REJECTED: " + "; ".join(failures) + "\n")
+        parser.exit(2, "SUBJECT_PRECHECK_REJECTED: " + "; ".join(failures) + "\n")
 
 
 if __name__ == "__main__":

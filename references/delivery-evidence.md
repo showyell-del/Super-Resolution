@@ -1,19 +1,11 @@
 # Delivery evidence
 
-The delivered image is approved only when evidence describes the exact final bytes, including every operation performed after neural enlargement.
+Keep only evidence that drives a gate or identifies the exact delivered bytes:
 
-Retain:
+- Apple/storage preflight and exact canvas report;
+- locked scene review, protected-content data, and subject manifest when applicable;
+- one subject precheck plus structured manual review;
+- accepted repair manifest and final composite report when applicable;
+- semantic approval, MPS report, final dimensions, mode, byte size, and SHA-256.
 
-- Apple/storage preflight report;
-- source and canvas-normalization reports;
-- scene anchor, protected masks, subject manifest, tile or region manifests;
-- structure and semantic prompts, outputs, hashes, and review notes;
-- registration/stitch/composite reports;
-- native-pixel verification crops and passing people contact-sheet report when applicable;
-- semantic-master approval;
-- staged runtime report and Real-ESRGAN MPS report;
-- exact final dimensions, mode, byte size, SHA-256, and hashes of all listed artifacts.
-
-Use `finalize_delivery.py` after the final modification. A report generated before a later composite, color conversion, metadata rewrite, or export is not delivery evidence.
-
-The final report proves file identity and recorded gates. It does not replace visual inspection.
+Run finalize_delivery.py after the last composite or export. A prior checksum is stale. Evidence proves file identity and completed gates; it does not replace visual inspection.

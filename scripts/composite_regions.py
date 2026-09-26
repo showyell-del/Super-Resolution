@@ -48,6 +48,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument(
+        "--base",
+        type=Path,
+        help="optional uniformly enlarged base; accepted high-density repairs are composited once at this scale",
+    )
+    parser.add_argument(
+        "--approval",
+        type=Path,
+        help="version 2 semantic approval; required with --base and bound to this repair manifest",
+    )
     parser.add_argument("--feather", type=int, default=32)
     parser.add_argument("--min-correlation", type=float, default=0.45)
     parser.add_argument("--max-translation-ratio", type=float, default=0.04)
@@ -56,12 +66,41 @@ def main() -> None:
 
     data = json.loads(args.manifest.read_text(encoding="utf-8"))
     source_path = Path(data["source"])
-    require_apple_silicon([source_path, args.manifest, args.output.parent])
+    base_path = args.base or source_path
+    paths = [source_path, base_path, args.manifest, args.output.parent]
+    if args.approval:
+        paths.append(args.approval)
+    require_apple_silicon(paths)
     if sha256(source_path) != data["source_sha256"]:
         parser.error("Source changed after region preparation")
+    if not base_path.is_file():
+        parser.error(f"Missing base image: {base_path}")
+    if args.base:
+        if not args.approval or not args.approval.is_file():
+            parser.error("--approval is required when compositing onto an enlarged --base")
+        approval = json.loads(args.approval.read_text(encoding="utf-8"))
+        bound_repair = approval.get("repair_manifest") or {}
+        if approval.get("approval_version") != 2 or approval.get("approved") is not True:
+            parser.error("Semantic approval is invalid")
+        if Path(str(approval.get("master", ""))).resolve() != source_path.resolve():
+            parser.error("Semantic approval belongs to another source")
+        if approval.get("master_sha256") != data["source_sha256"]:
+            parser.error("Semantic approval source hash does not match the repair manifest")
+        if Path(str(bound_repair.get("path", ""))).resolve() != args.manifest.resolve():
+            parser.error("Semantic approval is not bound to this repair manifest")
+        if bound_repair.get("sha256") != sha256(args.manifest):
+            parser.error("Repair manifest changed after semantic approval")
     source_image = Image.open(source_path)
-    source = np.asarray(source_image.convert("RGB"), dtype=np.uint8)
-    result = source.astype(np.float32)
+    base_image = Image.open(base_path)
+    source_width, source_height = source_image.size
+    base_width, base_height = base_image.size
+    scale_x = base_width / source_width
+    scale_y = base_height / source_height
+    if abs(scale_x - scale_y) > 1e-8:
+        parser.error("Base image must be a uniform enlargement of the manifest source")
+    scale = scale_x
+    base_pixels = np.asarray(base_image.convert("RGB"), dtype=np.uint8)
+    result = base_pixels.astype(np.float32)
     reports = []
 
     for item in data["regions"]:
@@ -70,9 +109,15 @@ def main() -> None:
         edit_path = args.manifest.parent / item["output"]
         if not edit_path.is_file() or sha256(edit_path) != item.get("output_sha256"):
             parser.error(f"Region {item['name']} output is missing or changed")
-        x, y, width, height = item["crop_box"]
+        source_x, source_y, source_width, source_height = item["crop_box"]
+        x = round(source_x * scale)
+        y = round(source_y * scale)
+        right = round((source_x + source_width) * scale)
+        bottom = round((source_y + source_height) * scale)
+        width = right - x
+        height = bottom - y
         edited = np.asarray(Image.open(edit_path).convert("RGB").resize((width, height), Image.Resampling.LANCZOS))
-        reference = source[y:y + height, x:x + width]
+        reference = base_pixels[y:bottom, x:right]
         try:
             aligned, correlation, warp = register(reference, edited)
         except cv2.error as exc:
@@ -86,11 +131,13 @@ def main() -> None:
                 f"scale_error={scale_error:.3%}, translation={translation_ratio:.3%}"
             )
         alpha = feather_mask(width, height, min(args.feather, width // 4, height // 4))
-        base = result[y:y + height, x:x + width]
-        result[y:y + height, x:x + width] = base * (1 - alpha) + aligned.astype(np.float32) * alpha
+        region_base = result[y:y + height, x:x + width]
+        result[y:y + height, x:x + width] = region_base * (1 - alpha) + aligned.astype(np.float32) * alpha
         reports.append({
             "name": item["name"],
-            "crop_box": item["crop_box"],
+            "subject_ids": item.get("subject_ids", []),
+            "source_crop_box": item["crop_box"],
+            "composite_box": [x, y, width, height],
             "output_sha256": item["output_sha256"],
             "correlation": correlation,
             "scale_error": scale_error,
@@ -101,12 +148,15 @@ def main() -> None:
     output_image = Image.fromarray(np.clip(result, 0, 255).astype(np.uint8))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     save_args = {"compress_level": 2}
-    if source_image.info.get("icc_profile"):
-        save_args["icc_profile"] = source_image.info["icc_profile"]
+    if base_image.info.get("icc_profile"):
+        save_args["icc_profile"] = base_image.info["icc_profile"]
     output_image.save(args.output, **save_args)
     report = {
         "source": str(source_path.resolve()),
         "source_sha256": data["source_sha256"],
+        "base": str(base_path.resolve()),
+        "base_sha256": sha256(base_path),
+        "scale": scale,
         "manifest": str(args.manifest.resolve()),
         "output": str(args.output.resolve()),
         "output_sha256": sha256(args.output),

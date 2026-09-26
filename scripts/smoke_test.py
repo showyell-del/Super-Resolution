@@ -53,8 +53,46 @@ def main() -> None:
     prompt = args.workspace / "region-prompt.txt"
     prompt.write_text("Preserve the exact deterministic fixture.", encoding="utf-8")
     run(str(scripts / "record_region.py"), str(regions_dir / "regions-manifest.json"), "center", str(crop), "--prompt-file", str(prompt), "--review-note", "Exact deterministic crop accepted.")
+    normalized_review = args.workspace / "normalized-review.json"
+    normalized_review.write_text(json.dumps({
+        "review_scale": "100% native pixels",
+        "subject_report_required": False,
+        "global_checks": {
+            "geometry_and_perspective": "pass",
+            "line_topology_and_edge_ownership": "not_applicable",
+            "repeated_structures": "not_applicable",
+            "emitters_reflections_and_bloom": "not_applicable",
+            "organic_support_topology": "not_applicable",
+            "far_field_and_depth_falloff": "not_applicable",
+            "protected_content": "not_applicable"
+        },
+        "regions": [{
+            "name": "fixture", "box": [0, 0, 640, 360], "status": "pass",
+            "note": "Deterministic fixture inspected."
+        }],
+        "reviewer_note": "Deterministic fixture accepted."
+    }), encoding="utf-8")
+    normalized_approval = args.workspace / "normalized-approval.json"
+    run(
+        str(scripts / "approve_semantic_master.py"), str(normalized), str(normalized_review),
+        "--repair-manifest", str(regions_dir / "regions-manifest.json"),
+        "--output", str(normalized_approval),
+    )
     composite = args.workspace / "composite.png"
     run(str(scripts / "composite_regions.py"), str(regions_dir / "regions-manifest.json"), str(composite))
+    enlarged_base = args.workspace / "enlarged-base.png"
+    Image.open(normalized).resize((1280, 720), Image.Resampling.LANCZOS).save(enlarged_base)
+    enlarged_composite = args.workspace / "enlarged-composite.png"
+    run(
+        str(scripts / "composite_regions.py"),
+        str(regions_dir / "regions-manifest.json"),
+        str(enlarged_composite),
+        "--base", str(enlarged_base),
+        "--approval", str(normalized_approval),
+    )
+    with Image.open(enlarged_composite) as image:
+        if image.size != (1280, 720):
+            raise RuntimeError(f"Unexpected enlarged composite size: {image.size}")
 
     people = Image.new("RGB", (400, 200), "#777777")
     draw = ImageDraw.Draw(people)
@@ -67,10 +105,36 @@ def main() -> None:
     people.save(people_path)
     subjects = args.workspace / "subjects.json"
     subjects.write_text(json.dumps({"subjects": [
-        {"id": "a", "face_box": [25, 25, 110, 110], "identity": {"distinguishing_features": "round face"}},
+        {"id": "a", "face_box": [45, 45, 60, 60], "identity": {"distinguishing_features": "round face"}},
         {"id": "b", "face_box": [255, 25, 110, 110], "identity": {"distinguishing_features": "angular face"}}
     ]}), encoding="utf-8")
-    run(str(scripts / "build_contact_sheet.py"), str(people_path), str(subjects), str(args.workspace / "contact"), "--min-sharpness", "1", "--max-hash-distance", "0")
+    run(
+        str(scripts / "build_contact_sheet.py"), str(people_path), str(subjects),
+        str(args.workspace / "legacy-contact"), "--min-edit-face-width", "30", expect=2,
+    )
+    run(
+        str(scripts / "build_contact_sheet.py"), str(people_path), str(subjects),
+        str(args.workspace / "contact"), "--stage", "semantic", "--min-sharpness", "1",
+        "--max-hash-distance", "0", expect=2,
+    )
+    subject_report = json.loads((args.workspace / "contact" / "contact-sheet-report.json").read_text())
+    if "pass" in subject_report or subject_report.get("manual_semantic_review_required") is not True:
+        raise RuntimeError("Automated subject metrics must not approve facial semantics")
+
+    people_regions = args.workspace / "people-regions.json"
+    people_regions.write_text(json.dumps([{
+        "name": "repair-a", "category": "people", "subject_ids": ["a"],
+        "x": 0, "y": 0, "width": 180, "height": 180
+    }]), encoding="utf-8")
+    people_repairs = args.workspace / "people-repairs"
+    run(str(scripts / "prepare_regions.py"), str(people_path), str(people_regions), str(people_repairs), "--context", "0")
+    repair_prompt = args.workspace / "people-repair-prompt.txt"
+    repair_prompt.write_text("Preserve the fixture and reconstruct subject a.", encoding="utf-8")
+    run(
+        str(scripts / "record_region.py"), str(people_repairs / "regions-manifest.json"),
+        "repair-a", str(people_repairs / "repair-a-input.png"),
+        "--prompt-file", str(repair_prompt), "--review-note", "Subject a repair inspected.",
+    )
 
     review = args.workspace / "native-review.json"
     review.write_text(json.dumps({
@@ -86,10 +150,32 @@ def main() -> None:
             "protected_content": "not_applicable"
         },
         "regions": [{"name": "people", "box": [0, 0, 400, 200], "status": "pass", "note": "Two distinct fixture subjects reviewed."}],
-        "reviewer_note": "Synthetic smoke-test fixture accepted."
+        "reviewer_note": "Synthetic smoke-test fixture accepted.",
+        "people_review": {
+            "checks": {
+                "eyes_and_gaze": "pass",
+                "mouth_and_teeth": "pass",
+                "skin_texture": "pass",
+                "identity_and_distinctness": "pass",
+                "hair_hands_and_anatomy": "pass",
+                "wardrobe_and_material_integration": "pass"
+            },
+            "subjects": [
+                {"id": "a", "status": "pass", "delivery_strategy": "final_registered_repair", "note": "Fixture A repair inspected."},
+                {"id": "b", "status": "pass", "delivery_strategy": "semantic_master", "note": "Fixture B inspected."}
+            ]
+        }
     }), encoding="utf-8")
     run(str(scripts / "approve_semantic_master.py"), str(people_path), str(review), expect=2)
-    run(str(scripts / "approve_semantic_master.py"), str(people_path), str(review), "--subject-report", str(args.workspace / "contact" / "contact-sheet-report.json"))
+    run(
+        str(scripts / "approve_semantic_master.py"), str(people_path), str(review),
+        "--subject-report", str(args.workspace / "contact" / "contact-sheet-report.json"), expect=2,
+    )
+    run(
+        str(scripts / "approve_semantic_master.py"), str(people_path), str(review),
+        "--subject-report", str(args.workspace / "contact" / "contact-sheet-report.json"),
+        "--repair-manifest", str(people_repairs / "regions-manifest.json"),
+    )
 
     final_report = args.workspace / "delivery.json"
     run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--operation-report", str(composite) + ".composite-report.json")

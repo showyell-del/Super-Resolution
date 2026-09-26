@@ -1,4 +1,4 @@
 interface:
   display_name: "Super-Resolution"
-  short_description: "在 M 系列 Mac 上用 MPS 与真实 AI 模型完成语义重建和超分"
-  default_prompt: "使用 $super-resolution：先完成全路径存储预检和精确画布标准化，再按主体像素密度选择整图或局部语义重建；对人物建立主体清单与原生像素联系表验收，最后用 Apple MPS 与 Real-ESRGAN 放大，并为最终字节生成完整证据链。"
+  short_description: "一次规划、一次 MPS 的语义重建与超分"
+  default_prompt: "使用 $super-resolution：先做 Apple MPS 与存储预检，再一次性盘点人物、材质和场景缺陷；整图最多生成一次，低像素主体预先制作高密度注册修复包，以人工语义门禁阻止空眼、黑口洞、磨皮和涂抹进入 MPS；最后只放大一次、合成一次并校验最终字节。"

@@ -1,28 +1,17 @@
 # Super-Resolution
 
-Structure-first semantic reconstruction and verified neural super-resolution for Apple Silicon.
+Semantic reconstruction and verified neural enlargement for Apple Silicon.
 
-Super-Resolution repairs what ordinary upscalers cannot: malformed geometry, empty materials, tiny synthetic faces, cloned people, broken lines, and other semantic defects that remain visible even in a high-resolution file. It then performs verified Real-ESRGAN enlargement on Apple MPS.
-
-## What it provides
-
-- Whole-image tiling and sparse local repair with registration and feathered compositing
-- A hard face pixel-density gate and per-person subject manifest
-- Native-pixel face contact sheets, blur checks, and likely-duplicate detection
-- Structure-first prompting for people, architecture, products, art, and mixed scenes
-- Deterministic preservation of text, logos, diagrams, and interfaces
-- Exact aspect-ratio normalization without stretching
-- SHA-bound semantic approval and a unified final delivery report
-- Runtime staging when the system volume lacks safe working space
+The pipeline fixes missing meaning before adding pixels: malformed faces, smeared clothing, empty materials, broken lines, repeated synthetic detail, and weak environments are rejected before the expensive upscale. Real-ESRGAN then runs once on Apple MPS, followed by one registered high-density repair composite when needed.
 
 ## Requirements
 
 - Apple M-series Mac (`macOS`, `arm64`)
-- More than 50 GiB free on every volume used for source, output, temporary data, runtime, weights, or generated images
+- More than 50 GiB free on every volume used by the job
 - Python 3.9+
-- PyTorch with Apple MPS available
+- PyTorch with MPS available
 
-CPU, CUDA, Core ML conversion, and interpolation-only fallbacks are intentionally unsupported.
+CUDA, CPU inference, Core ML conversion, interpolation-only delivery, and resolution fallback are intentionally unsupported.
 
 ## Install
 
@@ -37,9 +26,7 @@ python -m pip install -r requirements.txt
 
 ## Workflow
 
-Run commands from the repository root with absolute paths.
-
-### 1. Preflight every storage path
+### 1. Preflight and normalize
 
 ```bash
 python scripts/apple_preflight.py --check-mps --include-codex-imagegen \
@@ -48,77 +35,63 @@ python scripts/apple_preflight.py --check-mps --include-codex-imagegen \
   /absolute/input.png /safe/volume/job /absolute/output.png
 
 python scripts/stage_runtime.py /safe/volume/sr-runtime
-```
 
-### 2. Normalize the target canvas
-
-```bash
 python scripts/normalize_canvas.py input.png normalized.png \
   --target-width 3840 --target-height 2160
 ```
 
-This performs an exact center crop only. It never stretches or silently changes geometry.
+The normalizer crops to the exact ratio and never stretches geometry.
 
-### 3. Choose reconstruction scope
+### 2. Make one repair plan
 
-Use overlapping tiles for broad defects:
+Inspect the normalized image at native pixels. Record every critical person and every defective anatomy, garment, material, line system, reflection, and focal environment region before generation.
 
-```bash
-python scripts/prepare_tiles.py normalized.png workspace/tiles \
-  --cols 4 --rows 4 --overlap 192
-```
-
-Use local regions for small people or isolated defects:
+Use the whole image once only when broad reconstruction is necessary. Faces below 80 pixels in the semantic master require a contextual group or individual repair; do not lower the threshold and do not shrink the accepted repair back into the master.
 
 ```bash
-python scripts/prepare_regions.py normalized.png assets/regions.json workspace/regions
+python scripts/prepare_regions.py normalized.png assets/regions.json work/repair
+python scripts/record_region.py work/repair/regions-manifest.json region-name \
+  generated-region.png --prompt-file region-prompt.txt \
+  --review-note "Native-pixel anatomy and integration passed."
 ```
 
-For acceptance-critical people, copy `assets/subject-manifest.json`, define every subject and face box, and follow [camera-real people reconstruction](references/people-camera-realism.md). Faces narrower than 80 pixels require local repair; below 48 pixels they require individual or small-group creative reconstruction unless a sharper identity reference exists.
-
-Record accepted tile stages with `record_tile.py`, or accepted local regions with `record_region.py`. Register and assemble them with `stitch_tiles.py` or `composite_regions.py`.
-
-### 4. Approve at native pixels
+### 3. Approve semantics before enlargement
 
 ```bash
 python scripts/build_contact_sheet.py semantic-master.png \
-  subject-manifest.json workspace/people-review
+  subject-manifest.json work/people --stage semantic
 
 python scripts/approve_semantic_master.py semantic-master.png native-review.json \
-  --subject-report workspace/people-review/contact-sheet-report.json
+  --subject-report work/people/contact-sheet-report.json \
+  --repair-manifest work/repair/regions-manifest.json
 ```
 
-The automated report does not replace manual anatomy review. A failing report blocks approval.
+The contact sheet measures face density, blur, and likely duplication, but never approves eyes, mouths, skin, identity, anatomy, or clothing. Those items are mandatory structured checks in `native-review.json`.
 
-### 5. Enlarge on Apple MPS
+### 4. Enlarge once and composite once
 
 ```bash
 PYTORCH_ENABLE_MPS_FALLBACK=0 python scripts/apple_mps_upscale.py \
-  semantic-master.png output.png \
+  semantic-master.png mps-output.png \
   --target-width 7680 --target-height 4320 \
   --approval semantic-master.png.approval.json \
-  --runtime /safe/volume/sr-runtime \
-  --tile 256 --tile-pad 24
-```
+  --runtime /safe/volume/sr-runtime
 
-### 6. Finalize the exact delivered bytes
+python scripts/composite_regions.py work/repair/regions-manifest.json final.png \
+  --base mps-output.png --approval semantic-master.png.approval.json
 
-After all local composites and exports are complete:
-
-```bash
-python scripts/finalize_delivery.py output.png delivery.json \
+python scripts/finalize_delivery.py final.png delivery.json \
   --width 7680 --height 4320 \
-  --artifact semantic-master=semantic-master.png \
-  --operation-report output.png.mps-report.json
+  --operation-report final.png.composite-report.json
 ```
 
-See [SKILL.md](SKILL.md) for the complete decision contract and [delivery evidence](references/delivery-evidence.md) for required proof.
+If no repair pack is needed, finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
 
-## Theoretically unbounded resolution
+## Resolution
 
-The bounded-tile architecture has no fixed conceptual canvas limit: larger outputs can be produced by processing more registered regions. Practical limits remain storage, unified memory, runtime, file-format limits, model context, and cross-region consistency.
+Registered tiling has no fixed conceptual canvas limit, so the pipeline can theoretically produce arbitrarily large outputs. Practical limits remain storage, unified memory, model context, file formats, runtime, and cross-region consistency. More pixels never substitute for semantic truth.
 
-Unbounded pixels do not mean unbounded semantic truth. A 12K image can still contain a 20-pixel face with no recoverable identity. Semantic detail must be reconstructed at sufficient local subject scale, explicitly reviewed, and never misrepresented as source evidence.
+See [SKILL.md](SKILL.md) for the execution contract.
 
 ## License
 
