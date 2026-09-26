@@ -2,151 +2,124 @@
 
 Structure-first semantic reconstruction and verified neural super-resolution for Apple Silicon.
 
-Super-Resolution is a reusable Codex skill and Python pipeline for images that are already large but still break down under close inspection. It separates structural repair, semantic detail reconstruction, native-pixel approval, and final Real-ESRGAN enlargement so malformed content is not merely sharpened.
+Super-Resolution repairs what ordinary upscalers cannot: malformed geometry, empty materials, tiny synthetic faces, cloned people, broken lines, and other semantic defects that remain visible even in a high-resolution file. It then performs verified Real-ESRGAN enlargement on Apple MPS.
 
-## Highlights
+## What it provides
 
-- Repairs geometry, perspective, repetition, occlusion, and material structure before enlargement.
-- Tracks overlapping tiles through separate structural and semantic review stages.
-- Preserves exact text, logos, diagrams, and interfaces through deterministic restoration.
-- Binds approval to the semantic master by path and SHA-256 hash.
-- Runs Real-ESRGAN on PyTorch MPS with CPU and CUDA fallback disabled.
-- Produces registration, model, dimension, and checksum evidence for final verification.
+- Whole-image tiling and sparse local repair with registration and feathered compositing
+- A hard face pixel-density gate and per-person subject manifest
+- Native-pixel face contact sheets, blur checks, and likely-duplicate detection
+- Structure-first prompting for people, architecture, products, art, and mixed scenes
+- Deterministic preservation of text, logos, diagrams, and interfaces
+- Exact aspect-ratio normalization without stretching
+- SHA-bound semantic approval and a unified final delivery report
+- Runtime staging when the system volume lacks safe working space
 
 ## Requirements
 
-- macOS on an Apple M-series (`arm64`) Mac
-- More than 50 GiB free on every volume used by the job
-- Python 3.9 or newer
+- Apple M-series Mac (`macOS`, `arm64`)
+- More than 50 GiB free on every volume used for source, output, temporary data, runtime, weights, or generated images
+- Python 3.9+
 - PyTorch with Apple MPS available
 
-Core ML Tools is not required. Intel Macs, CPU inference, and CUDA are not supported.
+CPU, CUDA, Core ML conversion, and interpolation-only fallbacks are intentionally unsupported.
 
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/showyell-del/Super-Resolution.git \
   ~/.codex/skills/super-resolution
 cd ~/.codex/skills/super-resolution
-
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-The repository includes the minimal MPS inference runtime and verified `RealESRGAN_x4plus.pth` weight required by the pipeline.
+## Workflow
 
-## Usage
+Run commands from the repository root with absolute paths.
 
-Run all commands from the repository root with the virtual environment active. Replace the example paths and dimensions with values for your image.
-
-### 1. Preflight and tile preparation
+### 1. Preflight every storage path
 
 ```bash
-python scripts/apple_preflight.py --check-mps \
-  /absolute/path/input.png \
-  /absolute/path/workspace \
-  /absolute/path/output.png
+python scripts/apple_preflight.py --check-mps --include-codex-imagegen \
+  --runtime /safe/volume/sr-runtime \
+  --report /safe/volume/job/preflight.json \
+  /absolute/input.png /safe/volume/job /absolute/output.png
 
-python scripts/prepare_tiles.py \
-  /absolute/path/input.png \
-  /absolute/path/workspace/tiles \
+python scripts/stage_runtime.py /safe/volume/sr-runtime
+```
+
+### 2. Normalize the target canvas
+
+```bash
+python scripts/normalize_canvas.py input.png normalized.png \
+  --target-width 3840 --target-height 2160
+```
+
+This performs an exact center crop only. It never stretches or silently changes geometry.
+
+### 3. Choose reconstruction scope
+
+Use overlapping tiles for broad defects:
+
+```bash
+python scripts/prepare_tiles.py normalized.png workspace/tiles \
   --cols 4 --rows 4 --overlap 192
 ```
 
-Complete the generated `scene_anchor.json` before editing. Increase tile density where small subjects, complex geometry, repeated structures, or material detail require more local resolution.
-
-### 2. Reconstruct each tile
-
-Create a structure-only edit first, inspect it at native pixels, and record the accepted result:
+Use local regions for small people or isolated defects:
 
 ```bash
-python scripts/record_tile.py \
-  /absolute/path/workspace/tiles/manifest.json r1c1 \
-  /absolute/path/generated/r1c1-structure.png \
-  --stage structure \
-  --prompt-file /absolute/path/prompts/r1c1-structure.txt \
-  --review-note "Geometry, perspective, topology, and occlusion passed."
+python scripts/prepare_regions.py normalized.png assets/regions.json workspace/regions
 ```
 
-Then reconstruct semantic and material detail from the accepted structure:
+For acceptance-critical people, copy `assets/subject-manifest.json`, define every subject and face box, and follow [camera-real people reconstruction](references/people-camera-realism.md). Faces narrower than 80 pixels require local repair; below 48 pixels they require individual or small-group creative reconstruction unless a sharper identity reference exists.
+
+Record accepted tile stages with `record_tile.py`, or accepted local regions with `record_region.py`. Register and assemble them with `stitch_tiles.py` or `composite_regions.py`.
+
+### 4. Approve at native pixels
 
 ```bash
-python scripts/record_tile.py \
-  /absolute/path/workspace/tiles/manifest.json r1c1 \
-  /absolute/path/generated/r1c1-semantic.png \
-  --stage semantic \
-  --prompt-file /absolute/path/prompts/r1c1-semantic.txt \
-  --review-note "Material construction and lighting response passed."
+python scripts/build_contact_sheet.py semantic-master.png \
+  subject-manifest.json workspace/people-review
+
+python scripts/approve_semantic_master.py semantic-master.png native-review.json \
+  --subject-report workspace/people-review/contact-sheet-report.json
 ```
 
-Repeat both stages for every tile. Use the [prompt system](references/prompt-system.md), [defect-repair rules](references/defect-repair.md), and only the relevant [scene modules](references/scene-modules.md). Exact text, logos, diagrams, and interfaces should be masked and restored with `scripts/restore_protected.py`, not regenerated.
+The automated report does not replace manual anatomy review. A failing report blocks approval.
 
-### 3. Register and stitch
-
-```bash
-python scripts/stitch_tiles.py \
-  /absolute/path/workspace/tiles/manifest.json \
-  /absolute/path/workspace/semantic-master.png \
-  --scratch-dir /absolute/path/workspace/scratch
-```
-
-The stitcher rejects unapproved tile stages, changed tile files, weak registration, excessive translation, and scale drift.
-
-### 4. Approve the semantic master
-
-Inspect representative regions at 100% native pixels, create the [required review JSON](references/defect-repair.md#approval-schema), then bind approval to the exact master file:
-
-```bash
-python scripts/approve_semantic_master.py \
-  /absolute/path/workspace/semantic-master.png \
-  /absolute/path/workspace/native-review.json
-```
-
-### 5. Run neural super-resolution
-
-Target dimensions must be larger than the source and preserve its aspect ratio exactly.
+### 5. Enlarge on Apple MPS
 
 ```bash
 PYTORCH_ENABLE_MPS_FALLBACK=0 python scripts/apple_mps_upscale.py \
-  /absolute/path/workspace/semantic-master.png \
-  /absolute/path/output.png \
-  --target-width 12288 \
-  --target-height 8192 \
-  --approval /absolute/path/workspace/semantic-master.png.approval.json \
+  semantic-master.png output.png \
+  --target-width 7680 --target-height 4320 \
+  --approval semantic-master.png.approval.json \
+  --runtime /safe/volume/sr-runtime \
   --tile 256 --tile-pad 24
 ```
 
-### 6. Verify the delivery
+### 6. Finalize the exact delivered bytes
+
+After all local composites and exports are complete:
 
 ```bash
-python scripts/verify_output.py \
-  /absolute/path/output.png \
-  /absolute/path/review-regions.json \
-  /absolute/path/verification \
-  --width 12288 --height 8192
+python scripts/finalize_delivery.py output.png delivery.json \
+  --width 7680 --height 4320 \
+  --artifact semantic-master=semantic-master.png \
+  --operation-report output.png.mps-report.json
 ```
 
-Review the exported crops at 100%. If a region fails, repair its semantic tile and rebuild the master instead of hiding the defect with sharpening, grain, blur, or compression.
-
-Tile editing is model-agnostic and is not bundled with this repository. The pipeline provides the prompting contract, review gates, protected-region handling, registration, MPS enlargement, and verification tools around that editing step.
+See [SKILL.md](SKILL.md) for the complete decision contract and [delivery evidence](references/delivery-evidence.md) for required proof.
 
 ## Theoretically unbounded resolution
 
-The tile-based reconstruction workflow has no conceptual fixed canvas limit. By increasing the tile grid, processing bounded regions independently, and assembling them with overlap and registration, it can theoretically scale to arbitrarily large output dimensions—effectively “unlimited resolution” at the pipeline-design level.
+The bounded-tile architecture has no fixed conceptual canvas limit: larger outputs can be produced by processing more registered regions. Practical limits remain storage, unified memory, runtime, file-format limits, model context, and cross-region consistency.
 
-This does not mean infinite pixels on a single machine. Practical output size is bounded by available storage, unified memory, processing time, image-format and library limits, model context, and cross-tile consistency. Higher resolution also does not create semantic truth automatically: every added region still requires structurally valid reconstruction and native-pixel review.
-
-## Documentation
-
-- [Skill contract](SKILL.md)
-- [Structure-first defect repair](references/defect-repair.md)
-- [Prompt system](references/prompt-system.md)
-- [Scene modules](references/scene-modules.md)
-- [Apple MPS runtime](references/apple-runtime.md)
-- [Third-party notices](THIRD_PARTY.md)
+Unbounded pixels do not mean unbounded semantic truth. A 12K image can still contain a 20-pixel face with no recoverable identity. Semantic detail must be reconstructed at sufficient local subject scale, explicitly reviewed, and never misrepresented as source evidence.
 
 ## License
 
-Project-authored files are licensed under [Apache-2.0](LICENSE). Adapted components and model assets retain their original licenses and attribution.
+Project-authored files are licensed under [Apache-2.0](LICENSE). Third-party models and adapted components retain their own licenses and attribution.

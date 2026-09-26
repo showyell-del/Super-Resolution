@@ -99,12 +99,29 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--check-mps", action="store_true")
+    parser.add_argument("--runtime", type=Path, help="Real-ESRGAN runtime directory")
+    parser.add_argument(
+        "--include-codex-imagegen",
+        action="store_true",
+        help="also check CODEX_HOME/generated_images",
+    )
+    parser.add_argument("--report", type=Path)
     args = parser.parse_args()
+    paths = list(args.paths)
+    if args.runtime:
+        paths.extend([args.runtime, args.runtime / "weights"])
+    if args.include_codex_imagegen:
+        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+        paths.append(codex_home / "generated_images")
     try:
-        report = require_apple_silicon(args.paths, check_mps=args.check_mps)
+        report = require_apple_silicon(paths, check_mps=args.check_mps)
     except PreflightError as exc:
         parser.exit(2, f"PRECHECK_BLOCKED: {exc}\n")
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    payload = json.dumps(report, ensure_ascii=False, indent=2)
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(payload, encoding="utf-8")
+    print(payload)
 
 
 if __name__ == "__main__":

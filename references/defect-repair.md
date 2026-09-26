@@ -75,6 +75,7 @@ Create a review JSON for `scripts/approve_semantic_master.py` after native-pixel
 ```json
 {
   "review_scale": "100% native pixels",
+  "subject_report_required": true,
   "global_checks": {
     "geometry_and_perspective": "pass",
     "line_topology_and_edge_ownership": "pass",
@@ -97,3 +98,5 @@ Create a review JSON for `scripts/approve_semantic_master.py` after native-pixel
 ```
 
 Use `not_applicable` only when the category is genuinely absent from the image. An approval is invalid if every structural category is marked `not_applicable`.
+
+Set `subject_report_required` to `true` whenever people or faces are acceptance-critical, then pass the exact passing contact-sheet report with `--subject-report`. The approval tool binds that report to the same semantic-master path and SHA-256 and blocks approval if it is missing, failed, or stale.

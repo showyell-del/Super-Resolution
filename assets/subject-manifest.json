@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "mode": "creative_people_reconstruction",
+  "subjects": [
+    {
+      "id": "person-001",
+      "role": "foreground presenter",
+      "box": [0, 0, 100, 200],
+      "face_box": [25, 10, 50, 60],
+      "identity": {
+        "apparent_age": "adult",
+        "presentation": "woman",
+        "hair": "dark shoulder-length hair",
+        "wardrobe": "light formal dress",
+        "distinguishing_features": "replace with visible source-supported traits"
+      },
+      "invariants": [
+        "position",
+        "pose",
+        "gaze",
+        "expression",
+        "wardrobe",
+        "body proportions"
+      ]
+    }
+  ]
+}

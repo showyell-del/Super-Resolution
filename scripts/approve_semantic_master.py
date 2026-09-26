@@ -39,6 +39,11 @@ def main() -> None:
     parser.add_argument("master", type=Path)
     parser.add_argument("review", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--subject-report",
+        type=Path,
+        help="required passing contact-sheet report when people or faces are acceptance-critical",
+    )
     args = parser.parse_args()
 
     output = args.output or args.master.with_suffix(args.master.suffix + ".approval.json")
@@ -89,6 +94,21 @@ def main() -> None:
     if not str(review.get("reviewer_note", "")).strip():
         parser.error("reviewer_note is required")
 
+    subject_report = None
+    if review.get("subject_report_required") is True and not args.subject_report:
+        parser.error("This review requires --subject-report")
+    if args.subject_report:
+        if not args.subject_report.is_file():
+            parser.error(f"Missing subject report: {args.subject_report}")
+        subject_report = json.loads(args.subject_report.read_text(encoding="utf-8"))
+        if subject_report.get("pass") is not True:
+            parser.error("Subject report did not pass")
+        report_image = Path(str(subject_report.get("image", "")))
+        if report_image.resolve() != args.master.resolve():
+            parser.error("Subject report belongs to another semantic master")
+        if subject_report.get("image_sha256") != sha256(args.master):
+            parser.error("Semantic master changed after the subject report was created")
+
     approval = {
         "approval_version": 1,
         "approved": True,
@@ -98,6 +118,14 @@ def main() -> None:
         "master_size": [width, height],
         "master_mode": mode,
         "review": review,
+        "subject_report": (
+            {
+                "path": str(args.subject_report.resolve()),
+                "sha256": sha256(args.subject_report),
+            }
+            if args.subject_report
+            else None
+        ),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(approval, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -10,6 +10,7 @@ Run `scripts/apple_preflight.py --check-mps` before any operation that can expan
 - the tile workspace;
 - scratch or temporary files;
 - the Real-ESRGAN runtime and weights;
+- `CODEX_HOME/generated_images` when a semantic editor writes there;
 - the final output.
 
 Requirements:
@@ -21,6 +22,23 @@ Requirements:
 - PyTorch built with MPS and `torch.backends.mps.is_available()` returning true.
 
 At exactly 50 GiB or below, stop. Do not begin and hope swap remains bounded. Do not offer a lower-resolution fallback, CPU inference, CUDA, Core ML conversion, ordinary interpolation, or another output size.
+
+Use one command to check every path and retain the report:
+
+```bash
+python scripts/apple_preflight.py --check-mps --include-codex-imagegen \
+  --runtime /safe/volume/super-resolution-runtime \
+  --report /safe/volume/job/preflight.json \
+  /absolute/source.png /safe/volume/job /absolute/output.png
+```
+
+If the bundled weight is on a low-space volume, stage its verified bytes before inference:
+
+```bash
+python scripts/stage_runtime.py /safe/volume/super-resolution-runtime
+```
+
+Pass that directory to `apple_mps_upscale.py --runtime`. The stage report and model hash are delivery evidence.
 
 ## Verified MPS executor
 

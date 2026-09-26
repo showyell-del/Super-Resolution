@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "multi-face-stage",
+      "fixture": "creative stage image with at least 12 people and several faces below 80 px",
+      "must_route_to": ["subject manifest", "sparse region repair", "contact sheet", "manual anatomy review"],
+      "must_reject": ["whole-frame-only repair", "cloned faces", "blank eyes", "identity restoration claim without references"]
+    },
+    {
+      "id": "architecture-night",
+      "fixture": "night architecture with repeated grids, luminous edges, glass, foliage, and reflections",
+      "must_route_to": ["structure-first repair", "line-family review", "registration"],
+      "must_reject": ["bent grids", "floating light strips", "bloom replacing structure", "decorative pseudo-detail"]
+    },
+    {
+      "id": "protected-branding",
+      "fixture": "image containing exact text and a logo",
+      "must_route_to": ["protected mask", "deterministic restoration"],
+      "must_reject": ["generative text recreation", "changed logo geometry"]
+    },
+    {
+      "id": "nonstandard-aspect-to-4k",
+      "fixture": "1653x952 source requested at 3840x2160",
+      "must_route_to": ["exact rational crop", "crop report"],
+      "must_reject": ["stretching", "aspect mismatch", "silent excessive crop"]
+    },
+    {
+      "id": "low-runtime-volume",
+      "fixture": "system volume at or below 50 GiB and work volume above 50 GiB",
+      "must_route_to": ["blocked preflight", "verified runtime staging", "preflight rerun"],
+      "must_reject": ["model load on low-space volume", "CPU fallback", "lower-resolution fallback"]
+    }
+  ]
+}

@@ -10,7 +10,7 @@ Select only the modules present in the current tile. Combine subject and materia
 
 ## People and portraits
 
-Lock identity, age, expression, gaze, hairstyle, anatomy, pose, wardrobe, makeup, and lighting. Reconstruct facial planes, eyelid and lip edges, individual hair groups, believable skin variation, fine vellus hair, garment construction, seams, and accessories only where visible. Preserve retouching style and depth of field. Avoid pore tiling, wax skin, sharpened makeup, changed teeth, iris patterns, hands, or facial proportions.
+Apply the pixel-density gate, truth-mode distinction, subject manifest, prompt construction, and native-pixel acceptance rules in [people-camera-realism.md](people-camera-realism.md). Lock identity when a valid reference exists; otherwise preserve role, count, pose, wardrobe, age range, expression, lighting, and placement while explicitly treating new faces as creative reconstruction.
 
 ## Animals and wildlife
 
