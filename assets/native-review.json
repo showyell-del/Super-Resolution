@@ -1,40 +1,54 @@
 {
   "review_scale": "100% native pixels",
+  "visual_contract": {
+    "source_look": "camera_photo",
+    "target_look": "camera_photo",
+    "truth_mode": "creative_reconstruction",
+    "source_evidence": "",
+    "target_reason": "",
+    "detail_policy": ""
+  },
+  "appearance_checks": {
+    "style_consistency": "pending",
+    "material_construction": "pending",
+    "spatial_detail_hierarchy": "pending",
+    "optics_or_markmaking": "pending"
+  },
   "subject_report_required": true,
   "global_checks": {
-    "geometry_and_perspective": "pass",
-    "line_topology_and_edge_ownership": "pass",
-    "repeated_structures": "pass",
+    "geometry_and_perspective": "pending",
+    "line_topology_and_edge_ownership": "pending",
+    "repeated_structures": "pending",
     "emitters_reflections_and_bloom": "not_applicable",
     "organic_support_topology": "not_applicable",
-    "far_field_and_depth_falloff": "pass",
-    "protected_content": "pass"
+    "far_field_and_depth_falloff": "pending",
+    "protected_content": "pending"
   },
   "regions": [
     {
       "name": "highest-risk-region",
       "box": [0, 0, 512, 512],
-      "status": "pass",
-      "note": "Describe the concrete native-pixel evidence."
+      "status": "pending",
+      "note": ""
     }
   ],
   "people_review": {
     "checks": {
-      "eyes_and_gaze": "pass",
-      "mouth_and_teeth": "pass",
-      "skin_texture": "pass",
-      "identity_and_distinctness": "pass",
-      "hair_hands_and_anatomy": "pass",
-      "wardrobe_and_material_integration": "pass"
+      "eyes_and_gaze": "pending",
+      "mouth_and_teeth": "pending",
+      "skin_texture": "pending",
+      "identity_and_distinctness": "pending",
+      "hair_hands_and_anatomy": "pending",
+      "wardrobe_and_material_integration": "pending"
     },
     "subjects": [
       {
         "id": "person-001",
-        "status": "pass",
+        "status": "pending",
         "delivery_strategy": "final_registered_repair",
-        "note": "Describe the inspected subject and repair evidence."
+        "note": ""
       }
     ]
   },
-  "reviewer_note": "No known semantic defect remains before MPS."
+  "reviewer_note": ""
 }

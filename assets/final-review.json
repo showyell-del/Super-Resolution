@@ -1,0 +1,19 @@
+{
+  "review_scale": "100% native pixels",
+  "image_sha256": "",
+  "appearance_checks": {
+    "style_consistency": "pending",
+    "material_construction": "pending",
+    "spatial_detail_hierarchy": "pending",
+    "optics_or_markmaking": "pending"
+  },
+  "regions": [
+    {
+      "name": "highest-risk-region",
+      "box": [0, 0, 512, 512],
+      "status": "pending",
+      "note": ""
+    }
+  ],
+  "reviewer_note": ""
+}

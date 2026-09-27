@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -20,6 +21,25 @@ def run(*arguments: str, expect: int = 0) -> None:
             f"Expected exit {expect}, got {result.returncode}: {' '.join(arguments)}\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
+
+
+def visual_review() -> dict:
+    return {
+        "visual_contract": {
+            "source_look": "graphic",
+            "target_look": "graphic",
+            "truth_mode": "evidence_preserving",
+            "source_evidence": "Synthetic sharp-edged graphic fixture.",
+            "target_reason": "Preserve the source graphic look.",
+            "detail_policy": "Keep exact edges; do not add camera texture.",
+        },
+        "appearance_checks": {
+            "style_consistency": "pass",
+            "material_construction": "pass",
+            "spatial_detail_hierarchy": "pass",
+            "optics_or_markmaking": "pass",
+        },
+    }
 
 
 def main() -> None:
@@ -55,6 +75,7 @@ def main() -> None:
     run(str(scripts / "record_region.py"), str(regions_dir / "regions-manifest.json"), "center", str(crop), "--prompt-file", str(prompt), "--review-note", "Exact deterministic crop accepted.")
     normalized_review = args.workspace / "normalized-review.json"
     normalized_review.write_text(json.dumps({
+        **visual_review(),
         "review_scale": "100% native pixels",
         "subject_report_required": False,
         "global_checks": {
@@ -138,6 +159,7 @@ def main() -> None:
 
     review = args.workspace / "native-review.json"
     review.write_text(json.dumps({
+        **visual_review(),
         "review_scale": "100% native pixels",
         "subject_report_required": True,
         "global_checks": {
@@ -166,6 +188,22 @@ def main() -> None:
             ]
         }
     }), encoding="utf-8")
+    missing_style_review = args.workspace / "missing-style-review.json"
+    missing_style_review.write_text(json.dumps({
+        key: value for key, value in json.loads(review.read_text(encoding="utf-8")).items()
+        if key not in {"visual_contract", "appearance_checks"}
+    }), encoding="utf-8")
+    run(str(scripts / "approve_semantic_master.py"), str(people_path), str(missing_style_review), expect=2)
+    failed_appearance = args.workspace / "failed-appearance-review.json"
+    failed_data = json.loads(review.read_text(encoding="utf-8"))
+    failed_data["appearance_checks"]["material_construction"] = "fail"
+    failed_appearance.write_text(json.dumps(failed_data), encoding="utf-8")
+    run(str(scripts / "approve_semantic_master.py"), str(people_path), str(failed_appearance), expect=2)
+    invalid_conversion = args.workspace / "invalid-conversion-review.json"
+    invalid_data = json.loads(review.read_text(encoding="utf-8"))
+    invalid_data["visual_contract"]["target_look"] = "camera_photo"
+    invalid_conversion.write_text(json.dumps(invalid_data), encoding="utf-8")
+    run(str(scripts / "approve_semantic_master.py"), str(people_path), str(invalid_conversion), expect=2)
     run(str(scripts / "approve_semantic_master.py"), str(people_path), str(review), expect=2)
     run(
         str(scripts / "approve_semantic_master.py"), str(people_path), str(review),
@@ -178,7 +216,21 @@ def main() -> None:
     )
 
     final_report = args.workspace / "delivery.json"
-    run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--operation-report", str(composite) + ".composite-report.json")
+    final_review = args.workspace / "final-review.json"
+    final_review.write_text(json.dumps({
+        "review_scale": "100% native pixels",
+        "image_sha256": hashlib.sha256(composite.read_bytes()).hexdigest(),
+        "appearance_checks": visual_review()["appearance_checks"],
+        "regions": [{"name": "fixture", "box": [0, 0, 640, 360], "status": "pass", "note": "Exact fixture inspected at delivery size."}],
+        "reviewer_note": "Final graphic fixture accepted."
+    }), encoding="utf-8")
+    stale_review = args.workspace / "stale-final-review.json"
+    stale_data = json.loads(final_review.read_text(encoding="utf-8"))
+    stale_data["image_sha256"] = "0" * 64
+    stale_review.write_text(json.dumps(stale_data), encoding="utf-8")
+    run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--operation-report", str(composite) + ".composite-report.json", expect=2)
+    run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--final-review", str(stale_review), expect=2)
+    run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--final-review", str(final_review), "--operation-report", str(composite) + ".composite-report.json")
     print(json.dumps({"pass": True, "workspace": str(args.workspace.resolve())}, indent=2))
 
 

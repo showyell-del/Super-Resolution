@@ -56,7 +56,7 @@ def main() -> None:
     parser.add_argument(
         "--approval",
         type=Path,
-        help="version 2 semantic approval; required with --base and bound to this repair manifest",
+        help="version 3 semantic approval; required with --base and bound to this repair manifest",
     )
     parser.add_argument("--feather", type=int, default=32)
     parser.add_argument("--min-correlation", type=float, default=0.45)
@@ -80,7 +80,7 @@ def main() -> None:
             parser.error("--approval is required when compositing onto an enlarged --base")
         approval = json.loads(args.approval.read_text(encoding="utf-8"))
         bound_repair = approval.get("repair_manifest") or {}
-        if approval.get("approval_version") != 2 or approval.get("approved") is not True:
+        if approval.get("approval_version") != 3 or approval.get("approved") is not True:
             parser.error("Semantic approval is invalid")
         if Path(str(approval.get("master", ""))).resolve() != source_path.resolve():
             parser.error("Semantic approval belongs to another source")

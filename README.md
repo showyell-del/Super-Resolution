@@ -2,7 +2,7 @@
 
 Semantic reconstruction and verified neural enlargement for Apple Silicon.
 
-The pipeline fixes missing meaning before adding pixels: malformed faces, smeared clothing, empty materials, broken lines, repeated synthetic detail, and weak environments are rejected before the expensive upscale. Real-ESRGAN then runs once on Apple MPS, followed by one registered high-density repair composite when needed.
+The pipeline identifies the source and requested visual style, repairs missing structure and material detail, then performs one verified neural enlargement. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before the expensive upscale.
 
 ## Requirements
 
@@ -42,11 +42,11 @@ python scripts/normalize_canvas.py input.png normalized.png \
 
 The normalizer crops to the exact ratio and never stretches geometry.
 
-### 2. Make one repair plan
+### 2. Diagnose style and make one repair plan
 
-Inspect the normalized image at native pixels. Record every critical person and every defective anatomy, garment, material, line system, reflection, and focal environment region before generation.
+Inspect the normalized image at native pixels. Classify its look as photograph, render, illustration, graphic, or mixed, and record the requested target look and truth mode. Distinguish missing detail from intentional soft focus or artistic simplification. Record critical people and defective anatomy, garments, materials, lines, reflections, and focal environment regions before generation. See [visual routing](references/visual-routing.md) and the [layered prompt contract](references/prompt-system.md).
 
-Use the whole image once only when broad reconstruction is necessary. Faces below 80 pixels in the semantic master require a contextual group or individual repair; do not lower the threshold and do not shrink the accepted repair back into the master.
+When style or defect repair is uncertain, test one representative high-risk crop at intended viewing scale. Reject smeared, pasted-on, or style-inconsistent detail before committing to a whole-image generation. Use the whole image once only when broad reconstruction is necessary. Photographic faces below 80 pixels in the semantic master require a contextual group or individual repair; do not lower the threshold and do not shrink the accepted repair back into the master.
 
 ```bash
 python scripts/prepare_regions.py normalized.png assets/regions.json work/repair
@@ -66,7 +66,7 @@ python scripts/approve_semantic_master.py semantic-master.png native-review.json
   --repair-manifest work/repair/regions-manifest.json
 ```
 
-The contact sheet measures face density, blur, and likely duplication, but never approves eyes, mouths, skin, identity, anatomy, or clothing. Those items are mandatory structured checks in `native-review.json`.
+The review records the source and target look and passes checks for style, material construction, detail hierarchy, and optics or mark-making. The contact sheet measures face density, blur, and likely duplication, but never approves eyes, mouths, skin, identity, anatomy, or clothing. Those items are mandatory structured checks in `native-review.json` for photographic people.
 
 ### 4. Enlarge once and composite once
 
@@ -82,10 +82,11 @@ python scripts/composite_regions.py work/repair/regions-manifest.json final.png 
 
 python scripts/finalize_delivery.py final.png delivery.json \
   --width 7680 --height 4320 \
+  --final-review final-review.json \
   --operation-report final.png.composite-report.json
 ```
 
-If no repair pack is needed, finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
+Inspect the exact final pixels and fill [final-review.json](assets/final-review.json) with the final file's SHA-256, appearance passes, and inspected regions before delivery. If no repair pack is needed, review and finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
 
 ## Resolution
 

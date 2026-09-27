@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "cases": [
     {
       "id": "sharp-but-malformed-face",
@@ -42,6 +42,36 @@
       "fixture": "any used volume has at most 50 GiB free",
       "must_route_to": ["blocked preflight", "verified runtime staging", "preflight rerun"],
       "must_reject": ["model load", "automatic deletion", "CPU or lower-resolution fallback"]
+    },
+    {
+      "id": "photograph-with-smeared-midscale-detail",
+      "fixture": "nominal 6K event photograph with blurred garment panels and plastic-looking foliage but intentional background bokeh",
+      "must_route_to": ["camera_photo visual contract", "mid-scale construction repair", "risk crop trial", "appearance checks before MPS"],
+      "must_reject": ["uniform grain overlay", "global sharpening", "invented detail inside intentional bokeh"]
+    },
+    {
+      "id": "stylized-illustration",
+      "fixture": "illustrated characters and textured painted background requested at higher resolution without a style change",
+      "must_route_to": ["illustration visual contract", "medium-consistent mark-making", "preserved intentional simplification"],
+      "must_reject": ["photographic pores", "camera-grain preset", "photorealism by default"]
+    },
+    {
+      "id": "mixed-stage-and-screen",
+      "fixture": "camera-shot performers in front of a screen containing exact graphic text",
+      "must_route_to": ["mixed visual contract", "photographic performer review", "deterministic protection of exact screen graphics"],
+      "must_reject": ["one style for every region", "generated text", "graphic spill across performer boundary"]
+    },
+    {
+      "id": "unsupported-identity-detail",
+      "fixture": "tiny real person's face requested as faithful identity restoration without a sharper same-person reference",
+      "must_route_to": ["evidence limit", "stop before claimed faithful restoration"],
+      "must_reject": ["invented face presented as recovered identity", "expensive whole-image run"]
+    },
+    {
+      "id": "final-upscale-style-regression",
+      "fixture": "approved master looks plausible but MPS or region composite creates halos, smeared materials, or pasted repair seams",
+      "must_route_to": ["hash-bound native-pixel final review", "appearance checks on exact delivery bytes"],
+      "must_reject": ["delivery report without final review", "stale review hash", "acceptance from pixel dimensions alone"]
     }
   ]
 }

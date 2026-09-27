@@ -1,6 +1,6 @@
 # Camera-real people
 
-Use this module whenever a person must survive native-pixel inspection.
+Use this module when the requested look is photographic and a person must survive native-pixel inspection. For illustration or graphic people, use style-appropriate anatomy and marks instead of photographic pores or lens cues.
 
 ## Density routing
 
@@ -21,12 +21,12 @@ Create all required repairs as one plan before MPS. Group adjacent people only w
 - **Creative reconstruction:** preserve count, role, pose, wardrobe, age range, expression, gaze, light, and placement while creating distinct plausible people.
 - **Background continuity:** preserve silhouettes and action without forcing portrait detail into optical blur.
 
-Record stable IDs and visible distinguishing traits in the subject manifest.
+Record stable IDs and visible distinguishing traits in the subject manifest. Face repair cannot establish real identity without a sharper same-person reference.
 
 ## Compact prompt clause
 
-> Preserve count, subject IDs, blocking, pose, gaze, expression, wardrobe, body proportions, camera, focus, and light. Give each subject distinct facial proportions. Reconstruct two complete eyes with eyelids, iris, pupil, sclera, aligned gaze, and restrained catchlights; coherent nose and philtrum; lips with real volume; and, when the mouth is open, bounded oral depth with plausible teeth and tongue rather than a black cavity. Preserve skin plane variation and fine natural texture without global smoothing. Preserve hair groups, ears, jaw, neck, hands, garment construction, seams, weave, folds, and stage integration at distance-appropriate detail. No cloned faces, empty eyes, black mouth holes, wax skin, beauty-filter blur, pasted heads, fused fingers, halos, or cutout edges.
+> Preserve count, subject IDs, blocking, pose, gaze, expression, wardrobe, body proportions, camera, focus, and light. Give each subject distinct facial proportions. Reconstruct complete eyes with aligned gaze and restrained catchlights; coherent nose and lips; and, for open mouths, bounded oral depth rather than a black cavity. Preserve skin-plane variation and restrained fine texture without global smoothing. Keep hair groups, jaw, neck, hands, garment construction, folds, and stage contact at distance-appropriate detail. No cloned faces, empty eyes, black mouth holes, wax skin, pasted heads, fused fingers, halos, or cutout edges.
 
 ## Mandatory review
 
-The contact-sheet tool is only a measurable precheck. In the native-pixel review, mark all six checks as pass: eyes/gaze, mouth/teeth, skin texture, identity/distinctness, hair/hands/anatomy, and wardrobe/material integration. Review every subject with a concrete note and either semantic_master or final_registered_repair.
+The contact-sheet tool is only a measurable precheck. In the native-pixel review, mark all six checks as pass: eyes/gaze, mouth/teeth, skin texture, identity/distinctness, hair/hands/anatomy, and wardrobe/material integration. Review every subject with a concrete note and either semantic_master or final_registered_repair. For an intentional wide shot, do not invent portrait-level pores or eyelashes beyond the actual projected size.

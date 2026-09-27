@@ -33,6 +33,14 @@ REQUIRED_PEOPLE_CHECKS = {
 }
 VALID_RESULTS = {"pass", "not_applicable"}
 VALID_SUBJECT_STRATEGIES = {"semantic_master", "final_registered_repair"}
+VALID_LOOKS = {"camera_photo", "render", "illustration", "graphic", "mixed"}
+VALID_TRUTH_MODES = {"faithful_restoration", "creative_reconstruction", "evidence_preserving"}
+REQUIRED_APPEARANCE_CHECKS = {
+    "style_consistency",
+    "material_construction",
+    "spatial_detail_hierarchy",
+    "optics_or_markmaking",
+}
 
 
 def sha256(path: Path) -> str:
@@ -98,6 +106,23 @@ def main() -> None:
     review = json.loads(args.review.read_text(encoding="utf-8"))
     if review.get("review_scale") != "100% native pixels":
         parser.error("review_scale must be exactly '100% native pixels'")
+    visual = review.get("visual_contract")
+    if not isinstance(visual, dict):
+        parser.error("visual_contract is required before semantic approval")
+    if visual.get("source_look") not in VALID_LOOKS or visual.get("target_look") not in VALID_LOOKS:
+        parser.error(f"source_look and target_look must be one of {sorted(VALID_LOOKS)}")
+    if visual.get("truth_mode") not in VALID_TRUTH_MODES:
+        parser.error(f"truth_mode must be one of {sorted(VALID_TRUTH_MODES)}")
+    if visual["truth_mode"] == "evidence_preserving" and visual["source_look"] != visual["target_look"]:
+        parser.error("Evidence-preserving work cannot change the visual medium")
+    for field in ("source_evidence", "target_reason", "detail_policy"):
+        if not isinstance(visual.get(field), str) or not visual[field].strip():
+            parser.error(f"visual_contract.{field} requires concrete evidence")
+    appearance = review.get("appearance_checks")
+    if not isinstance(appearance, dict) or set(appearance) != REQUIRED_APPEARANCE_CHECKS:
+        parser.error(f"appearance_checks must contain exactly: {sorted(REQUIRED_APPEARANCE_CHECKS)}")
+    if any(value != "pass" for value in appearance.values()):
+        parser.error("Every appearance_check must pass at native pixels")
     checks = review.get("global_checks")
     if not isinstance(checks, dict) or set(checks) != REQUIRED_CHECKS:
         parser.error(f"global_checks must contain exactly: {sorted(REQUIRED_CHECKS)}")
@@ -197,7 +222,7 @@ def main() -> None:
                 parser.error(f"Subject {subject_id!r} is not covered by the accepted repair manifest")
 
     approval = {
-        "approval_version": 2,
+        "approval_version": 3,
         "approved": True,
         "approved_at_utc": datetime.now(timezone.utc).isoformat(),
         "master": str(args.master.resolve()),
