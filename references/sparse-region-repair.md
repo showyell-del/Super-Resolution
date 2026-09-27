@@ -2,7 +2,7 @@
 
 Use local regions for small subjects or isolated semantic failures.
 
-1. List every required region before MPS. Include enough body or scene context for pose, scale, perspective, light, and registration.
+1. List every required region before MPS. Include enough body or scene context for pose, scale, perspective, light, and registration. Compare the manifest's `planning` count and gross coverage with one whole-image edit; merge redundant overlapping crops when density and registration remain valid.
 2. Add subject_ids to every people region.
 3. Extract with prepare_regions.py.
 4. Generate each region at high density, inspect it at native pixels, and record it with record_region.py.

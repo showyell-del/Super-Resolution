@@ -105,6 +105,8 @@ class RealESRGANMPS:
         output = image.new_zeros((1, 3, height * self.native_scale, width * self.native_scale))
         tiles_x = math.ceil(width / self.tile)
         tiles_y = math.ceil(height / self.tile)
+        total_tiles = tiles_x * tiles_y
+        progress_interval = max(1, math.ceil(total_tiles / 10))
 
         for tile_y in range(tiles_y):
             for tile_x in range(tiles_x):
@@ -134,7 +136,8 @@ class RealESRGANMPS:
                     :, :, tile_start_y:tile_end_y, tile_start_x:tile_end_x
                 ]
                 index = tile_y * tiles_x + tile_x + 1
-                print(f"\tTile {index}/{tiles_x * tiles_y}")
+                if index % progress_interval == 0 or index == total_tiles:
+                    print(f"\tTiles {index}/{total_tiles}")
 
         return output
 

@@ -69,6 +69,9 @@ def main() -> None:
     regions_file.write_text(json.dumps([{"name": "center", "x": 160, "y": 90, "width": 320, "height": 180}]), encoding="utf-8")
     regions_dir = args.workspace / "regions"
     run(str(scripts / "prepare_regions.py"), str(normalized), str(regions_file), str(regions_dir), "--context", "0")
+    region_plan = json.loads((regions_dir / "regions-manifest.json").read_text(encoding="utf-8"))["planning"]
+    if region_plan != {"region_count": 1, "gross_crop_pixels": 57600, "source_pixels": 230400, "gross_coverage_ratio": 0.25}:
+        raise RuntimeError(f"Unexpected region workload proxy: {region_plan}")
     crop = regions_dir / "center-input.png"
     prompt = args.workspace / "region-prompt.txt"
     prompt.write_text("Preserve the exact deterministic fixture.", encoding="utf-8")

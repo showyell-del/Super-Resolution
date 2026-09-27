@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "cases": [
     {
       "id": "sharp-but-malformed-face",
@@ -72,6 +72,18 @@
       "fixture": "approved master looks plausible but MPS or region composite creates halos, smeared materials, or pasted repair seams",
       "must_route_to": ["hash-bound native-pixel final review", "appearance checks on exact delivery bytes"],
       "must_reject": ["delivery report without final review", "stale review hash", "acceptance from pixel dimensions alone"]
+    },
+    {
+      "id": "sparse-vs-global-cost",
+      "fixture": "same quality target can be met by two small repairs or by regenerating an entire high-resolution scene",
+      "must_route_to": ["compare edit calls and gross crop coverage", "local lane", "one MPS run"],
+      "must_reject": ["whole-image generation by default", "mandatory crop trial", "multiple full-size previews per region"]
+    },
+    {
+      "id": "global-defect-cost",
+      "fixture": "most of the image has a shared material and style failure; local crops overlap heavily",
+      "must_route_to": ["compare workload plans", "one global edit", "only indispensable registered repairs"],
+      "must_reject": ["serial local edits before deciding the lane", "duplicate overlapping crops", "repeated MPS runs"]
     }
   ]
 }

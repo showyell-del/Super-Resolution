@@ -2,7 +2,7 @@
 
 Semantic reconstruction and verified neural enlargement for Apple Silicon.
 
-The pipeline identifies the source and requested visual style, repairs missing structure and material detail, then performs one verified neural enlargement. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before the expensive upscale.
+The pipeline identifies the source and requested visual style, chooses the least editing work that meets the quality target, repairs missing structure and material detail, then performs one verified neural enlargement. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before the expensive upscale.
 
 ## Requirements
 
@@ -34,19 +34,17 @@ python scripts/apple_preflight.py --check-mps --include-codex-imagegen \
   --report /safe/volume/job/preflight.json \
   /absolute/input.png /safe/volume/job /absolute/output.png
 
-python scripts/stage_runtime.py /safe/volume/sr-runtime
-
 python scripts/normalize_canvas.py input.png normalized.png \
   --target-width 3840 --target-height 2160
 ```
 
-The normalizer crops to the exact ratio and never stretches geometry.
+The normalizer crops to the exact ratio and never stretches geometry. Run `stage_runtime.py /safe/volume/sr-runtime` only when that selected runtime needs a verified model copy; an already verified staged model is reused.
 
 ### 2. Diagnose style and make one repair plan
 
 Inspect the normalized image at native pixels. Classify its look as photograph, render, illustration, graphic, or mixed, and record the requested target look and truth mode. Distinguish missing detail from intentional soft focus or artistic simplification. Record critical people and defective anatomy, garments, materials, lines, reflections, and focal environment regions before generation. See [visual routing](references/visual-routing.md) and the [layered prompt contract](references/prompt-system.md).
 
-When style or defect repair is uncertain, test one representative high-risk crop at intended viewing scale. Reject smeared, pasted-on, or style-inconsistent detail before committing to a whole-image generation. Use the whole image once only when broad reconstruction is necessary. Photographic faces below 80 pixels in the semantic master require a contextual group or individual repair; do not lower the threshold and do not shrink the accepted repair back into the master.
+Compare a clean pass, sparse local repairs, and a broad whole-image edit before generating. The region manifest reports count and gross crop coverage to expose redundant work; it is a workload proxy, not an exact provider price. Test one representative crop only when the result could change the expensive plan. Reject smeared, pasted-on, or style-inconsistent detail before committing to a whole-image generation. Photographic faces below 80 pixels in the semantic master require a contextual group or individual repair; do not lower the threshold and do not shrink the accepted repair back into the master.
 
 ```bash
 python scripts/prepare_regions.py normalized.png assets/regions.json work/repair

@@ -38,7 +38,7 @@ If the bundled weight is on a low-space volume, stage its verified bytes before 
 python scripts/stage_runtime.py /safe/volume/super-resolution-runtime
 ```
 
-Pass that directory to `apple_mps_upscale.py --runtime`. The stage report and model hash are delivery evidence.
+Run staging only when the selected runtime needs it. A valid existing staged weight is hash-checked and reused without another copy. Pass that directory to `apple_mps_upscale.py --runtime`. The stage report and model hash are delivery evidence.
 
 ## Verified MPS executor
 

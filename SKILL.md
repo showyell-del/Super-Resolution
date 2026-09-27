@@ -29,11 +29,14 @@ If the user did not request a change of look, preserve the source look. Never cl
 
 At 100%, inspect a representative sharp region and the worst salient region for people, anatomy, fabric, architecture, foliage, reflections, background, text, and boundaries where present. Record every acceptance-critical person in a subject manifest. Make one prioritized defect map: topology and protected content first, focal subjects and materials next, distant detail last. Preserve physically expected loss of detail from focus, distance, motion, haze, and illumination.
 
+Before any generation, compare viable plans by expected image-edit calls, total submitted crop area, repeated review work, and MPS passes. `prepare_regions.py` records region count and gross crop coverage; this is a workload proxy, not a price quote. Choose the least work that still resolves every acceptance-critical defect. Do not start with local edits and later discover that a whole-image edit was necessary.
+
 - **Clean lane:** source already has coherent semantics; approve and enlarge once.
-- **Reconstruction lane:** at most one whole-image semantic edit when broad defects require it; use registered local repairs for sparse defects.
+- **Local lane:** defects are sparse and the global look is stable; batch only affected regions. Merge nearby defects when they share context and all faces retain working density. Avoid duplicate crop overlap.
+- **Global lane:** defects or style conversion affect most of the composition, or many local edits would repeat the same context; at most one whole-image edit, then only indispensable high-density repairs.
 - **Evidence-preserving lane:** when exact identity or detail is required but no supporting pixels or references exist, report that limit; do not invent a claimed restoration.
 
-For uncertain style or high-risk reconstruction, run one small, representative crop trial at intended viewing scale before the expensive whole-image edit. Compare topology, material construction, local variation, optics, and style against the source/reference at native pixels. Correct the prompt once if needed. If the trial remains implausible, stop before enlargement and report the defect. A trial is diagnostic, not a deliverable.
+Use a crop trial only when its answer can change an expensive plan: uncertain style conversion, high-risk people/materials, or an untested prompt. Skip it for clean or straightforward isolated repairs. Compare the trial at intended viewing scale against the source/reference; correct the failed prompt layer once. If it remains implausible, stop before enlargement. A trial is diagnostic, not a deliverable.
 
 For acceptance-critical photographic people, read [people-camera-realism.md](references/people-camera-realism.md). The semantic-stage face-width floors are fixed:
 
@@ -78,6 +81,8 @@ Then inspect the exact final image at 100%, comparing the same risk regions to t
 
 ## Cost and retry rules
 
+- Spend in this order: read-only inspection and plan → necessary crop trial → one batch of semantic edits → approval → one MPS run → final review. Fail fast at each gate.
+- Reuse the source/target visual contract across regions; each prompt adds only the local defect and relevant constraints. Do not resend the full task history or multiple full-size previews for every crop.
 - Maximum one whole-image semantic generation and one MPS invocation per approved plan. A failed crop trial does not justify a whole-image run.
 - Generate all planned local repairs before MPS; composite them in one final operation.
 - A failed region invalidates only that region. Retry it once after correcting the diagnosed relationship; never rerun the whole image to fix a local defect.

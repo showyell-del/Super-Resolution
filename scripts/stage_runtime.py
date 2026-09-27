@@ -43,18 +43,21 @@ def main() -> None:
 
     destination = args.destination / "weights" / "RealESRGAN_x4plus.pth"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(".pth.tmp")
-    shutil.copyfile(args.source_weights, temporary)
-    copied_hash = sha256(temporary)
-    if copied_hash != EXPECTED_WEIGHTS_SHA256:
-        temporary.unlink(missing_ok=True)
-        parser.error(f"Copied model hash mismatch: {copied_hash}")
-    temporary.replace(destination)
+    reused = destination.is_file() and sha256(destination) == EXPECTED_WEIGHTS_SHA256
+    if not reused:
+        temporary = destination.with_suffix(".pth.tmp")
+        shutil.copyfile(args.source_weights, temporary)
+        copied_hash = sha256(temporary)
+        if copied_hash != EXPECTED_WEIGHTS_SHA256:
+            temporary.unlink(missing_ok=True)
+            parser.error(f"Copied model hash mismatch: {copied_hash}")
+        temporary.replace(destination)
 
     report = {
         "runtime": str(args.destination.resolve()),
         "weights": str(destination.resolve()),
-        "weights_sha256": copied_hash,
+        "weights_sha256": EXPECTED_WEIGHTS_SHA256,
+        "reused_verified_weights": reused,
     }
     report_path = args.destination / "runtime-stage-report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")

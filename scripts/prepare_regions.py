@@ -75,11 +75,18 @@ def main() -> None:
             "output_sha256": None,
         })
 
+    gross_crop_pixels = sum(item["crop_box"][2] * item["crop_box"][3] for item in prepared)
     manifest = {
         "source": str(args.image.resolve()),
         "source_sha256": sha256(args.image),
         "source_size": [image.width, image.height],
         "context": args.context,
+        "planning": {
+            "region_count": len(prepared),
+            "gross_crop_pixels": gross_crop_pixels,
+            "source_pixels": image.width * image.height,
+            "gross_coverage_ratio": round(gross_crop_pixels / (image.width * image.height), 4),
+        },
         "regions": prepared,
     }
     path = args.output_dir / "regions-manifest.json"
