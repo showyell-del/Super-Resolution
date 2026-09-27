@@ -56,6 +56,7 @@ Fix invalid topology before texture, but do not force a separate pass when struc
 ## 4. Gate before MPS
 
 Run `build_contact_sheet.py --stage semantic` for acceptance-critical people. Its blur and duplicate metrics are prechecks only; they cannot approve facial semantics.
+The sharpness precheck measures each face at a fixed 128 px reference width; raw Laplacian scores from source and 4x output pixels are not comparable. Never sharpen merely to raise this score.
 
 Create one native-pixel review using [native-review.json](assets/native-review.json), containing:
 

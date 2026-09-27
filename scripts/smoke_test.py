@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from build_contact_sheet import normalized_sharpness
+
 
 def run(*arguments: str, expect: int = 0) -> None:
     result = subprocess.run([sys.executable, *arguments], text=True, capture_output=True)
@@ -127,6 +129,13 @@ def main() -> None:
         draw.ellipse((92 + offset, 60, 102 + offset, 70), fill="black")
     people_path = args.workspace / "people.png"
     people.save(people_path)
+    face = people.crop((255, 25, 365, 135))
+    source_sharpness = normalized_sharpness(face)
+    enlarged_sharpness = normalized_sharpness(
+        face.resize((440, 440), Image.Resampling.LANCZOS)
+    )
+    if abs(enlarged_sharpness / source_sharpness - 1) > 0.30:
+        raise RuntimeError("Face sharpness precheck changed merely from pixel enlargement")
     subjects = args.workspace / "subjects.json"
     subjects.write_text(json.dumps({"subjects": [
         {"id": "a", "face_box": [45, 45, 60, 60], "identity": {"distinguishing_features": "round face"}},

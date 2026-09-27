@@ -21,6 +21,7 @@ from apple_preflight import require_apple_silicon
 
 
 STAGE_MIN_FACE_WIDTH = {"semantic": 80, "repair": 120, "final": 120}
+SHARPNESS_REFERENCE_WIDTH = 128
 
 
 def sha256(path: Path) -> str:
@@ -38,6 +39,14 @@ def difference_hash(image: Image.Image) -> int:
     for bit in bits.flatten():
         value = (value << 1) | int(bit)
     return value
+
+
+def normalized_sharpness(crop: Image.Image) -> float:
+    """Compare face detail at one scale, independent of output dimensions."""
+    height = max(1, round(crop.height * SHARPNESS_REFERENCE_WIDTH / crop.width))
+    reference = crop.resize((SHARPNESS_REFERENCE_WIDTH, height), Image.Resampling.LANCZOS)
+    gray = cv2.cvtColor(np.asarray(reference), cv2.COLOR_RGB2GRAY)
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
 def main() -> None:
@@ -77,8 +86,7 @@ def main() -> None:
         crop = image.crop((x, y, x + width, y + height))
         crop_path = args.output_dir / f"{subject_id}.png"
         crop.save(crop_path, compress_level=2)
-        gray = cv2.cvtColor(np.asarray(crop), cv2.COLOR_RGB2GRAY)
-        sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        sharpness = normalized_sharpness(crop)
         hashes[subject_id] = difference_hash(crop)
         failures = []
         if width < min_face_width:
@@ -143,6 +151,7 @@ def main() -> None:
         "schema_version": 2,
         "stage": args.stage,
         "minimum_face_width": min_face_width,
+        "sharpness_reference_width": SHARPNESS_REFERENCE_WIDTH,
         "image": str(args.image.resolve()),
         "image_sha256": sha256(args.image),
         "subject_manifest": str(args.subjects.resolve()),
