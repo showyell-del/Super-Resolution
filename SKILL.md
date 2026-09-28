@@ -37,6 +37,7 @@ Before any generation, compare viable plans by expected image-edit calls, total 
 - **Evidence-preserving lane:** when exact identity or detail is required but no supporting pixels or references exist, report that limit; do not invent a claimed restoration.
 
 Use a crop trial only when its answer can change an expensive plan: uncertain style conversion, high-risk people/materials, or an untested prompt. Skip it for clean or straightforward isolated repairs. Compare the trial at intended viewing scale against the source/reference; correct the failed prompt layer once. If it remains implausible, stop before enlargement. A trial is diagnostic, not a deliverable.
+For a camera-real target enlarged several times from a small source, run one representative face or material through `apple_mps_upscale.py --trial-box X Y W H` after semantic approval but before full-image MPS. Review the trial at final pixel scale. If it reveals painted skin, smeared mid-scale construction, or invented detail, reject the source/plan; a passing face-width or sharpness score cannot override it.
 
 For acceptance-critical photographic people, read [people-camera-realism.md](references/people-camera-realism.md). The semantic-stage face-width floors are fixed:
 
@@ -66,6 +67,7 @@ Create one native-pixel review using [native-review.json](assets/native-review.j
 - one status, delivery strategy, and concrete note for every subject.
 
 `approve_semantic_master.py` rejects missing manual checks. A subject that fails density, blur, or duplicate precheck must use an accepted `final_registered_repair` in `--repair-manifest`.
+For local repairs, the crop outside `target_box` is context for generation and registration, not permission to replace it. Compare target and neighboring background at the same scale and focus; high registration correlation does not establish depth-of-field or texture continuity.
 
 Block MPS on malformed anatomy, smeared or repeated texture, material detail unrelated to form, pseudo-text, broken perspective, lost intentional blur, unsupported style conversion, or unregistered repairs. For photographic people, also block empty eyes, black mouth cavities, wax skin, and cloned faces. Sharpness never overrides a semantic failure.
 
@@ -79,6 +81,7 @@ python scripts/composite_regions.py repair/regions-manifest.json final.png \
 ```
 
 Then inspect the exact final image at 100%, comparing the same risk regions to the approved master and intended look. Run `build_contact_sheet.py --stage final` for critical photographic people. Fill [final-review.json](assets/final-review.json) with passes and concrete notes for the delivered bytes; `finalize_delivery.py --final-review` rejects missing, failed, or stale reviews. Keep only the evidence listed in [delivery-evidence.md](references/delivery-evidence.md).
+Keep the full-scale MPS base as scratch, not a second deliverable. After the final gate and reports, retain one full-resolution image in the delivery directory and remove only the exact rebuildable intermediate. If the image fails, retract its approval rather than presenting a report marked pass.
 
 ## Cost and retry rules
 
@@ -89,6 +92,7 @@ Then inspect the exact final image at 100%, comparing the same risk regions to t
 - A failed region invalidates only that region. Retry it once after correcting the diagnosed relationship; never rerun the whole image to fix a local defect.
 - If the retry still fails, stop and report the exact region and defect. Do not add quality adjectives, cascade new passes, or claim completion.
 - Keep the defect map, trial, and review as compact as the actual risk allows; avoid variants that do not change a decision.
+- Record model time separately from end-to-end wall time. Do not extend a failed image's production path with documentation or repository publication; first report the failed visual gate and stop that render.
 
 ## Acceptance
 

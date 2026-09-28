@@ -130,14 +130,30 @@ def main() -> None:
                 f"Region {item['name']} registration rejected: correlation={correlation:.3f}, "
                 f"scale_error={scale_error:.3%}, translation={translation_ratio:.3%}"
             )
-        alpha = feather_mask(width, height, min(args.feather, width // 4, height // 4))
+        target_x, target_y, target_width, target_height = item["target_box"]
+        target_left = round(target_x * scale) - x
+        target_top = round(target_y * scale) - y
+        target_right = round((target_x + target_width) * scale) - x
+        target_bottom = round((target_y + target_height) * scale) - y
+        if not (0 <= target_left < target_right <= width and 0 <= target_top < target_bottom <= height):
+            parser.error(f"Region {item['name']} target box exceeds its registered crop")
+        alpha = np.zeros((height, width, 1), dtype=np.float32)
+        target_w = target_right - target_left
+        target_h = target_bottom - target_top
+        alpha[target_top:target_bottom, target_left:target_right] = feather_mask(
+            target_w, target_h, min(args.feather, target_w // 4, target_h // 4)
+        )
         region_base = result[y:y + height, x:x + width]
         result[y:y + height, x:x + width] = region_base * (1 - alpha) + aligned.astype(np.float32) * alpha
         reports.append({
             "name": item["name"],
             "subject_ids": item.get("subject_ids", []),
             "source_crop_box": item["crop_box"],
+            "source_target_box": item["target_box"],
             "composite_box": [x, y, width, height],
+            "composite_target_box": [
+                x + target_left, y + target_top, target_w, target_h
+            ],
             "output_sha256": item["output_sha256"],
             "correlation": correlation,
             "scale_error": scale_error,

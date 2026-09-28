@@ -41,6 +41,8 @@ def main() -> None:
     parser.add_argument("--runtime", type=Path, default=default_runtime)
     parser.add_argument("--weights", type=Path)
     parser.add_argument("--approval", type=Path, required=True)
+    parser.add_argument("--trial-box", nargs=4, type=int, metavar=("X", "Y", "W", "H"),
+                        help="upscale only this approved-source crop before committing to a full render")
     args = parser.parse_args()
 
     weights = args.weights or args.runtime / "weights" / "RealESRGAN_x4plus.pth"
@@ -77,6 +79,11 @@ def main() -> None:
     if not torch.backends.mps.is_available():
         parser.error("Apple MPS is unavailable; CPU fallback is forbidden")
     source_original = Image.open(args.source)
+    if args.trial_box:
+        x, y, w, h = args.trial_box
+        if x < 0 or y < 0 or w < 1 or h < 1 or x + w > source_original.width or y + h > source_original.height:
+            parser.error("Trial box exceeds the approved source")
+        source_original = source_original.crop((x, y, x + w, y + h))
     source_width, source_height = source_original.size
     scale_x = args.target_width / source_width
     scale_y = args.target_height / source_height
@@ -117,6 +124,7 @@ def main() -> None:
     report = {
         "source": str(args.source.resolve()),
         "source_sha256": source_hash,
+        "trial_box": args.trial_box,
         "approval": str(args.approval.resolve()),
         "approval_sha256": sha256(args.approval),
         "output": str(args.output.resolve()),

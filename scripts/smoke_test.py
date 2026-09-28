@@ -120,6 +120,29 @@ def main() -> None:
         if image.size != (1280, 720):
             raise RuntimeError(f"Unexpected enlarged composite size: {image.size}")
 
+    context_regions = args.workspace / "context-regions.json"
+    context_regions.write_text(json.dumps([{
+        "name": "target-only", "x": 200, "y": 120, "width": 80, "height": 60
+    }]), encoding="utf-8")
+    context_dir = args.workspace / "context-repair"
+    run(str(scripts / "prepare_regions.py"), str(normalized), str(context_regions), str(context_dir), "--context", "20")
+    edited_context = args.workspace / "edited-context.png"
+    Image.open(context_dir / "target-only-input.png").convert("RGB").point(
+        lambda value: min(value + 24, 255)
+    ).save(edited_context)
+    run(
+        str(scripts / "record_region.py"), str(context_dir / "regions-manifest.json"),
+        "target-only", str(edited_context), "--prompt-file", str(prompt),
+        "--review-note", "Only the target is authorized to change.",
+    )
+    target_only = args.workspace / "target-only.png"
+    run(str(scripts / "composite_regions.py"), str(context_dir / "regions-manifest.json"), str(target_only))
+    differences = np.any(np.asarray(Image.open(target_only)) != np.asarray(Image.open(normalized)), axis=2)
+    outside = differences.copy()
+    outside[120:180, 200:280] = False
+    if outside.any() or not differences[120:180, 200:280].any():
+        raise RuntimeError("Context pixels changed or target pixels were not repaired")
+
     people = Image.new("RGB", (400, 200), "#777777")
     draw = ImageDraw.Draw(people)
     draw.ellipse((30, 30, 129, 129), fill="#c58d65", outline="black", width=3)
