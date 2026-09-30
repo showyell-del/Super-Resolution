@@ -26,7 +26,7 @@ def sha256(path: Path) -> str:
 def main() -> None:
     skill_root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser()
-    parser.add_argument("destination", type=Path, help="Runtime directory on a volume with >50 GiB free")
+    parser.add_argument("destination", type=Path, help="Runtime directory on the chosen work volume")
     parser.add_argument(
         "--source-weights",
         type=Path,

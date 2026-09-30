@@ -1,0 +1,215 @@
+diff --git a/inference_vosr_onestep.py b/inference_vosr_onestep.py
+index 13e6e6f..26b56f1 100644
+--- a/inference_vosr_onestep.py
++++ b/inference_vosr_onestep.py
+@@ -1,4 +1,5 @@
+ import os
++os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+ import sys
+ import gc
+ import types
+@@ -15,7 +16,7 @@ from torchvision.transforms import Normalize
+ from safetensors.torch import load_file
+ from tqdm import tqdm
+ 
+-torch.hub.set_dir('preset/ckpts/torch_cache')
++torch.hub.set_dir(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'preset/ckpts/torch_cache'))
+ sys.path.append(os.getcwd())
+ # Make the VOSR/ dir (where tiled_vae.py lives) importable from any run cwd.
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+@@ -124,8 +125,9 @@ def _clear_stale_distributed_env():
+ 
+ def _inference_accelerator_stub():
+     _clear_stale_distributed_env()
+-    dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+-    return types.SimpleNamespace(device=dev)
++    if not torch.backends.mps.is_available():
++        raise RuntimeError('Apple MPS is required for this inference run')
++    return types.SimpleNamespace(device=torch.device('mps'))
+ 
+ 
+ def preprocess_raw_image(x, args):
+@@ -136,12 +138,13 @@ def preprocess_raw_image(x, args):
+ 
+ 
+ def load_dinov2(args, device):
++    dino_repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'preset/ckpts/torch_cache/facebookresearch_dinov2_main')
+     if args.enc_type == 'dinov2b':
+-        encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
++        encoder = torch.hub.load(dino_repo, 'dinov2_vitb14', source='local')
+     elif args.enc_type == 'dinov2l':
+-        encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14')
++        encoder = torch.hub.load(dino_repo, 'dinov2_vitl14', source='local')
+     elif args.enc_type == 'dinov2g':
+-        encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitg14')
++        encoder = torch.hub.load(dino_repo, 'dinov2_vitg14', source='local')
+     del encoder.head
+     encoder.head = torch.nn.Identity()
+ 
+@@ -193,7 +196,7 @@ def _crop_venc_features(z_fea_full, hi, wi, he, we, lh, lw):
+ 
+ def tiled_latent_inference(
+     model, vae, venc, lq_tensor, args,
+-    device='cuda', light_decoder=None,
++    device='mps', light_decoder=None,
+ ):
+     """
+     Latent-space tiled inference for VOSR DiT.
+@@ -292,6 +295,14 @@ def tiled_latent_inference(
+             z = z - dt * (u_acc / w_acc)
+ 
+     # --- Full-latent decode (done once) ---
++    if torch.device(device).type == 'mps':
++        tile_venc.clear()
++        del u_acc, w_acc, inp, u_tile, z_fea_tile, lq_latent, lq_tensor
++        model.cpu()
++        if venc is not None:
++            venc.cpu()
++        torch.mps.empty_cache()
++        print('[Tiled Latent]: released DiT and DINOv2 from MPS before VAE decode')
+     with torch.no_grad():
+         return decode_dispatch(vae, z, args, latents_mean, latents_std, light_decoder)
+ 
+@@ -343,6 +354,8 @@ def main():
+     if not image_paths:
+         print("No LQ images found. Exit.")
+         return
++    if len(image_paths) != 1:
++        raise ValueError('The MPS inference path accepts exactly one input image per run')
+ 
+     # Output goes directly into the user-specified -o folder (no tag sub-dir).
+     out_dir = args.output_dir
+@@ -356,11 +369,10 @@ def main():
+         return
+ 
+     torch.manual_seed(seed)
+-    torch.cuda.manual_seed_all(seed)
+     np.random.seed(seed)
+ 
+-    device = "cuda" if torch.cuda.is_available() else "cpu"
+     accelerator = _inference_accelerator_stub()
++    device = accelerator.device
+     print(f"Loading model from {args.checkpoint}...")
+     print(f"Inference steps: {args.infer_steps}, Seed: {seed}")
+ 
+@@ -437,6 +449,7 @@ def main():
+     print(f"Loading weights from {weight_path}")
+     state_dict = load_file(weight_path) if weight_path.endswith(".safetensors") else torch.load(weight_path, map_location="cpu")
+     model.load_state_dict(state_dict, strict=False)
++    del state_dict
+     model.to(device).eval()
+     model.forward = model.forward_flexible
+ 
+@@ -495,13 +508,12 @@ def main():
+             print(f"Error processing {img_name}: {e}")
+             import traceback
+             traceback.print_exc()
++            raise
+ 
+     gc.collect()
+-    if torch.cuda.is_available():
+-        torch.cuda.synchronize()
+-        torch.cuda.empty_cache()
++    torch.mps.empty_cache()
+     print("Done!")
+ 
+ 
+ if __name__ == "__main__":
+-    main()
+\ No newline at end of file
++    main()
+diff --git a/models/lightningdit.py b/models/lightningdit.py
+index 9fc2020..52fa867 100644
+--- a/models/lightningdit.py
++++ b/models/lightningdit.py
+@@ -21,7 +21,7 @@ from torch.utils.checkpoint import checkpoint
+ from timm.models.vision_transformer import PatchEmbed, Mlp
+ from .swiglu_ffn import SwiGLUFFN 
+ from .pos_embed import VisionRotaryEmbeddingFast
+-from .rmsnorm import RMSNorm
++from torch.nn import RMSNorm
+ 
+ 
+ 
+@@ -45,8 +45,8 @@ class MultiHeadCrossAttention(nn.Module):
+         self.proj_drop = nn.Dropout(proj_drop)
+ 
+         if qk_norm:
+-            self.q_norm = RMSNorm(self.head_dim)
+-            self.k_norm = RMSNorm(self.head_dim)
++            self.q_norm = RMSNorm(self.head_dim, eps=1e-6)
++            self.k_norm = RMSNorm(self.head_dim, eps=1e-6)
+         else:
+             self.q_norm = nn.Identity()
+             self.k_norm = nn.Identity()
+@@ -94,12 +94,10 @@ class MultiHeadCrossAttention(nn.Module):
+ 
+ 
+ 
+-@torch.compile
+ def modulate_adasin(x, shift, scale):
+     if shift is None:
+         return x * (1 + scale.unsqueeze(1))
+     return x * (1 + scale) + shift
+-@torch.compile
+ def modulate(x, shift, scale):
+     if shift is None:
+         return x * (1 + scale.unsqueeze(1))
+@@ -243,8 +241,8 @@ class LightningDiTBlock(nn.Module):
+             self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+             self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+         else:
+-            self.norm1 = RMSNorm(hidden_size)
+-            self.norm2 = RMSNorm(hidden_size)
++            self.norm1 = RMSNorm(hidden_size, eps=1e-6)
++            self.norm2 = RMSNorm(hidden_size, eps=1e-6)
+             
+         # Initialize attention layer
+         self.attn = Attention(
+@@ -290,7 +288,6 @@ class LightningDiTBlock(nn.Module):
+             self.cross_attn = MultiHeadCrossAttention(d_model=hidden_size, num_heads=num_heads, qk_norm=use_qknorm)
+             # self.cross_attn = MultiHeadCrossAttention(d_model=hidden_size, num_heads=num_heads, qk_norm=use_qknorm, **block_kwargs)
+ 
+-    @torch.compile
+     def forward(self, x, c, z=None, feat_rope=None):
+         B, N, C = x.shape
+ 
+@@ -314,13 +311,12 @@ class FinalLayer(nn.Module):
+         if not use_rmsnorm:
+             self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+         else:
+-            self.norm_final = RMSNorm(hidden_size)
++            self.norm_final = RMSNorm(hidden_size, eps=1e-6)
+         self.linear = nn.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True)
+         self.adaLN_modulation = nn.Sequential(
+             nn.SiLU(),
+             nn.Linear(hidden_size, 2 * hidden_size, bias=True)
+         )
+-    @torch.compile
+     def forward(self, x, c):
+         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
+         x = modulate(self.norm_final(x), shift, scale)
+@@ -681,4 +677,3 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
+ 
+     emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+     return emb
+-
+diff --git a/models/swiglu_ffn.py b/models/swiglu_ffn.py
+index 8834c5b..e3d7f7e 100644
+--- a/models/swiglu_ffn.py
++++ b/models/swiglu_ffn.py
+@@ -28,7 +28,6 @@ class SwiGLUFFN(nn.Module):
+         self.w12 = nn.Linear(in_features, 2 * hidden_features, bias=bias)
+         self.w3 = nn.Linear(hidden_features, out_features, bias=bias)
+ 
+-    @torch.compile
+     def forward(self, x: Tensor) -> Tensor:
+         x12 = self.w12(x)
+         x1, x2 = x12.chunk(2, dim=-1)
+@@ -71,4 +70,4 @@ class SwiGLUFFNFused(SwiGLU):
+             hidden_features=hidden_features,
+             out_features=out_features,
+             bias=bias,
+-        )
+\ No newline at end of file
++        )

@@ -1,17 +1,17 @@
 ---
 name: super-resolution
-description: Diagnose image style and missing detail, reconstruct only what the requested look supports, and deliver verified high-resolution raster images on Apple Silicon with PyTorch MPS and Real-ESRGAN. Use when faces, materials, lines, or environments fail at native pixels despite high nominal resolution.
+description: Diagnose image style and missing detail, reconstruct only what the requested look supports, and deliver verified high-resolution raster images on Apple Silicon with PyTorch MPS. Use when faces, materials, lines, or environments fail at native pixels despite high nominal resolution.
 ---
 
 # Super-Resolution
 
-Decide the intended visual language before writing a prompt. Semantic correctness, convincing appearance, and pixel enlargement are separate gates. Real-ESRGAN may enlarge only an approved master.
+Decide the intended visual language before writing a prompt. Semantic correctness, convincing appearance, and pixel enlargement are separate gates. Choose the verified neural route from the visual contract: Real-ESRGAN enlarges an approved master; VOSR2 may creatively reconstruct missing photographic detail after a passing target-scale crop trial.
 
 ## Hard gate
 
 - Require macOS on arm64 Apple Silicon and PyTorch MPS with `PYTORCH_ENABLE_MPS_FALLBACK=0`.
-- Require strictly more than 50 GiB free on every native volume used by source, output, scratch, temporary files, runtime, weights, or generated images. Run `apple_preflight.py` before model loading. Use `stage_runtime.py` when needed; never delete user data.
-- CUDA, CPU inference, Core ML conversion, interpolation-only output, lower resolution, and backend substitution are not supported.
+- Run `apple_preflight.py` before model loading to report free space on the macOS swap and job volumes. Place runtime, weights, caches, scratch, and output on the chosen work volume; disk space is reported, not a fixed pass/fail threshold. Never delete user data.
+- CUDA, CPU inference, Core ML conversion, interpolation-only output, lower resolution, and unverified backend substitution are not supported.
 - Read [apple-runtime.md](references/apple-runtime.md) before execution.
 
 ## 1. Classify on receipt
@@ -36,8 +36,10 @@ Before any generation, compare viable plans by expected image-edit calls, total 
 - **Global lane:** defects or style conversion affect most of the composition, or many local edits would repeat the same context; at most one whole-image edit, then only indispensable high-density repairs.
 - **Evidence-preserving lane:** when exact identity or detail is required but no supporting pixels or references exist, report that limit; do not invent a claimed restoration.
 
+For a camera-real target with widespread missing detail but stable source geometry, use the [VOSR2 Apple MPS route](references/vosr2-apple.md) only after a representative 4x face-and-material crop passes at native pixels. This is creative reconstruction, not identity restoration. Do not run VOSR2 on exact logos, text, or identities and do not apply Real-ESRGAN after it. The earlier VOSR 0.5B test failed its photographic quality gate and is not a delivery route.
+
 Use a crop trial only when its answer can change an expensive plan: uncertain style conversion, high-risk people/materials, or an untested prompt. Skip it for clean or straightforward isolated repairs. Compare the trial at intended viewing scale against the source/reference; correct the failed prompt layer once. If it remains implausible, stop before enlargement. A trial is diagnostic, not a deliverable.
-For a camera-real target enlarged several times from a small source, run one representative face or material through `apple_mps_upscale.py --trial-box X Y W H` after semantic approval but before full-image MPS. Review the trial at final pixel scale. If it reveals painted skin, smeared mid-scale construction, or invented detail, reject the source/plan; a passing face-width or sharpness score cannot override it.
+For a camera-real target enlarged several times from a small source, run one representative face or material through the selected route's 4x crop trial after semantic approval but before full-image MPS. Review the trial at final pixel scale. If it reveals painted skin, smeared mid-scale construction, or invented detail, reject the source/plan; a passing face-width or sharpness score cannot override it.
 
 For acceptance-critical photographic people, read [people-camera-realism.md](references/people-camera-realism.md). The semantic-stage face-width floors are fixed:
 
@@ -73,7 +75,7 @@ Block MPS on malformed anatomy, smeared or repeated texture, material detail unr
 
 ## 5. Enlarge and finish once
 
-Run `apple_mps_upscale.py` once. If a repair pack exists, apply it once with:
+Run the selected MPS route once: `apple_mps_upscale.py` for an approved Real-ESRGAN master, or the pinned VOSR2 command in [vosr2-apple.md](references/vosr2-apple.md) after its photographic crop gate. VOSR2 is verified only at 4x; never label a resized intermediate as equivalent. If a repair pack exists on the Real-ESRGAN route, apply it once with:
 
 ```bash
 python scripts/composite_regions.py repair/regions-manifest.json final.png \
@@ -87,7 +89,7 @@ Keep the full-scale MPS base as scratch, not a second deliverable. After the fin
 
 - Spend in this order: read-only inspection and plan → necessary crop trial → one batch of semantic edits → approval → one MPS run → final review. Fail fast at each gate.
 - Reuse the source/target visual contract across regions; each prompt adds only the local defect and relevant constraints. Do not resend the full task history or multiple full-size previews for every crop.
-- Maximum one whole-image semantic generation and one MPS invocation per approved plan. A failed crop trial does not justify a whole-image run.
+- Maximum one whole-image semantic generation and one full-image MPS invocation per approved plan. A failed crop trial does not justify a whole-image run. A demonstrated runtime defect permits one narrowly corrected retry; record interrupted attempts and elapsed time.
 - Generate all planned local repairs before MPS; composite them in one final operation.
 - A failed region invalidates only that region. Retry it once after correcting the diagnosed relationship; never rerun the whole image to fix a local defect.
 - If the retry still fails, stop and report the exact region and defect. Do not add quality adjectives, cascade new passes, or claim completion.

@@ -39,9 +39,9 @@
     },
     {
       "id": "low-runtime-volume",
-      "fixture": "any used volume has at most 50 GiB free",
-      "must_route_to": ["blocked preflight", "verified runtime staging", "preflight rerun"],
-      "must_reject": ["model load", "automatic deletion", "CPU or lower-resolution fallback"]
+      "fixture": "the macOS swap volume has little free space while the work volume has ample space",
+      "must_route_to": ["volume report", "work-volume runtime placement", "monitor actual runtime errors"],
+      "must_reject": ["fixed free-space cutoff", "automatic deletion", "CPU or lower-resolution fallback"]
     },
     {
       "id": "photograph-with-smeared-midscale-detail",

@@ -46,7 +46,7 @@ def visual_review() -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("workspace", type=Path, help="empty test directory on a volume with >50 GiB free")
+    parser.add_argument("workspace", type=Path, help="empty test directory on the chosen work volume")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     scripts = root / "scripts"

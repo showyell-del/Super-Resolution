@@ -12,7 +12,6 @@ import subprocess
 from pathlib import Path
 
 
-MIN_FREE_GIB = 50
 GIB = 1024 ** 3
 
 
@@ -39,7 +38,7 @@ def existing_anchor(path: Path) -> Path:
     return candidate
 
 
-def volume_report(paths: list[Path], minimum_gib: int = MIN_FREE_GIB) -> list[dict]:
+def volume_report(paths: list[Path]) -> list[dict]:
     reports: list[dict] = []
     seen: set[int] = set()
     for requested in paths:
@@ -54,14 +53,8 @@ def volume_report(paths: list[Path], minimum_gib: int = MIN_FREE_GIB) -> list[di
             "anchor": str(anchor),
             "free_bytes": usage.free,
             "free_gib": round(usage.free / GIB, 2),
-            "required_gib_strictly_greater_than": minimum_gib,
         }
         reports.append(item)
-        if usage.free <= minimum_gib * GIB:
-            raise PreflightError(
-                f"Storage preflight failed for {anchor}: {item['free_gib']} GiB free; "
-                f"the workflow requires strictly more than {minimum_gib} GiB"
-            )
     return reports
 
 
@@ -78,7 +71,8 @@ def require_apple_silicon(paths: list[Path], check_mps: bool = False) -> dict:
         "system": platform.system(),
         "architecture": platform.machine(),
         "cpu": brand,
-        "volumes": volume_report(paths),
+        # macOS swap shares the data volume even when all image files are external.
+        "volumes": volume_report([Path("/private/var/vm"), *paths]),
     }
 
     if check_mps:

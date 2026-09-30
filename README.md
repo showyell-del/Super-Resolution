@@ -1,13 +1,13 @@
 # Super-Resolution
 
-Semantic reconstruction and verified neural enlargement for Apple Silicon.
+Style-routed semantic reconstruction and verified neural enlargement for Apple Silicon.
 
-The pipeline identifies the source and requested visual style, chooses the least editing work that meets the quality target, repairs missing structure and material detail, then performs one verified neural enlargement. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before the expensive upscale.
+The pipeline identifies the source and requested visual style, chooses the least editing work that meets the quality target, then selects a verified MPS route. Real-ESRGAN enlarges approved content; VOSR2 can creatively reconstruct missing photographic detail. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before delivery.
 
 ## Requirements
 
 - Apple M-series Mac (`macOS`, `arm64`)
-- More than 50 GiB free on every volume used by the job
+- A work volume for model files, caches, scratch, and output; preflight reports available space on it and the macOS swap volume
 - Python 3.9+
 - PyTorch with MPS available
 
@@ -66,7 +66,9 @@ python scripts/approve_semantic_master.py semantic-master.png native-review.json
 
 The review records the source and target look and passes checks for style, material construction, detail hierarchy, and optics or mark-making. The contact sheet measures face density, blur, and likely duplication, but never approves eyes, mouths, skin, identity, anatomy, or clothing. Those items are mandatory structured checks in `native-review.json` for photographic people.
 
-### 4. Enlarge once and composite once
+### 4. Run the selected neural route once
+
+For an approved master whose semantics are already sound, use Real-ESRGAN:
 
 ```bash
 PYTORCH_ENABLE_MPS_FALLBACK=0 python scripts/apple_mps_upscale.py \
@@ -85,6 +87,8 @@ python scripts/finalize_delivery.py final.png delivery.json \
 ```
 
 Inspect the exact final pixels and fill [final-review.json](assets/final-review.json) with the final file's SHA-256, appearance passes, and inspected regions before delivery. If no repair pack is needed, review and finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
+
+For a photographic target that permits invented detail, use the pinned [VOSR2 Apple MPS route](references/vosr2-apple.md) instead, after a passing 4x crop trial. Its large upstream weights are downloaded to the work volume rather than bundled. On the tested M2/16 GiB Mac, 1536×1024 → 6144×4096 took 672 seconds of model processing and passed native-pixel review of three fictional faces, fabrics, glazing, and background focus. This is one verified scene, not a promise that every image will pass. Do not run Real-ESRGAN after VOSR2 or use VOSR2 to recreate exact identities, text, or logos.
 
 ## Resolution
 

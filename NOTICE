@@ -7,4 +7,8 @@ contributors, licensed under the Apache License 2.0.
 This product includes adapted Real-ESRGAN inference code and model assets developed
 by Xintao Wang and contributors, licensed under the BSD 3-Clause License.
 
+Optional patches adapt VOSR code developed by Rongyuan Wu and contributors, and
+DINOv2 code developed by Meta AI and contributors, both under Apache License 2.0.
+Their model weights are not included in this repository.
+
 Upstream revisions and model checksums are recorded in THIRD_PARTY.md.
