@@ -12,6 +12,7 @@ See THIRD_PARTY.md and third_party/licenses/ for attribution and license texts.
 from __future__ import annotations
 
 import math
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -100,9 +101,10 @@ class RealESRGANMPS:
         self.model.eval().to(self.device)
 
     @torch.inference_mode()
-    def _infer_tiles(self, image: torch.Tensor) -> torch.Tensor:
+    def _infer_tiles(self, image: torch.Tensor, output: np.ndarray) -> None:
         _, _, height, width = image.shape
-        output = image.new_zeros((1, 3, height * self.native_scale, width * self.native_scale))
+        if output.shape != (height * self.native_scale, width * self.native_scale, 3):
+            raise ValueError("Native tile canvas has the wrong shape")
         tiles_x = math.ceil(width / self.tile)
         tiles_y = math.ceil(height / self.tile)
         total_tiles = tiles_x * tiles_y
@@ -132,31 +134,35 @@ class RealESRGANMPS:
                 tile_end_x = tile_start_x + (end_x - start_x) * self.native_scale
                 tile_start_y = (start_y - padded_start_y) * self.native_scale
                 tile_end_y = tile_start_y + (end_y - start_y) * self.native_scale
-                output[:, :, output_start_y:output_end_y, output_start_x:output_end_x] = output_tile[
+                tile_rgb = output_tile[
                     :, :, tile_start_y:tile_end_y, tile_start_x:tile_end_x
-                ]
+                ].squeeze(0).float().cpu().clamp_(0, 1).numpy()
+                tile_rgb = np.transpose(tile_rgb, (1, 2, 0))
+                output[output_start_y:output_end_y, output_start_x:output_end_x] = (
+                    cv2.cvtColor(tile_rgb, cv2.COLOR_RGB2BGR) * 255.0
+                ).round().astype(np.uint8)
                 index = tile_y * tiles_x + tile_x + 1
                 if index % progress_interval == 0 or index == total_tiles:
                     print(f"\tTiles {index}/{total_tiles}")
 
-        return output
-
-    def enhance(self, input_bgr: np.ndarray, outscale: float) -> np.ndarray:
+    def enhance(self, input_bgr: np.ndarray, outscale: float, scratch_dir: Path) -> np.ndarray:
         if input_bgr.dtype != np.uint8 or input_bgr.ndim != 3 or input_bgr.shape[2] != 3:
             raise ValueError("Input must be an 8-bit three-channel BGR image")
         height, width = input_bgr.shape[:2]
         input_rgb = cv2.cvtColor(input_bgr, cv2.COLOR_BGR2RGB)
         tensor = torch.from_numpy(np.transpose(input_rgb, (2, 0, 1))).float().div_(255.0)
         tensor = tensor.unsqueeze(0).to(self.device)
-        output = self._infer_tiles(tensor)
-        output = output.squeeze(0).float().cpu().clamp_(0, 1).numpy()
-        output_rgb = np.transpose(output, (1, 2, 0))
-        output_bgr = cv2.cvtColor(output_rgb, cv2.COLOR_RGB2BGR)
-        output_bgr = (output_bgr * 255.0).round().astype(np.uint8)
-        if outscale != self.native_scale:
+        native_shape = (height * self.native_scale, width * self.native_scale, 3)
+        if outscale == self.native_scale:
+            output_bgr = np.empty(native_shape, dtype=np.uint8)
+            self._infer_tiles(tensor, output_bgr)
+            return output_bgr
+        with tempfile.TemporaryDirectory(prefix="realesrgan-native-", dir=scratch_dir) as temporary:
+            native = np.memmap(Path(temporary) / "native.bgr", mode="w+", dtype=np.uint8,
+                               shape=native_shape)
+            self._infer_tiles(tensor, native)
             output_bgr = cv2.resize(
-                output_bgr,
-                (round(width * outscale), round(height * outscale)),
-                interpolation=cv2.INTER_LANCZOS4,
-            )
-        return output_bgr
+                native, (round(width * outscale), round(height * outscale)),
+                interpolation=cv2.INTER_LANCZOS4)
+            del native
+            return output_bgr

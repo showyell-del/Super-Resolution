@@ -27,6 +27,9 @@ RUNTIME = Path(os.environ['VOSR2_RUNTIME']).expanduser().resolve()
 PACKAGES = Path(os.environ['VOSR2_ANE_PACKAGES']).expanduser().resolve()
 PACKAGE_FILES = ('Manifest.json', 'Data/com.apple.CoreML/model.mlmodel',
                  'Data/com.apple.CoreML/weights/weight.bin')
+PACKAGE_STAGES = (('dit-segment-0-ane.mlpackage', 'dit_0'),
+                  ('dit-segment-1-ane.mlpackage', 'dit_1'),
+                  ('qwen-vae-decoder-128-ane.mlpackage', 'vae_decoder'))
 import sys
 sys.path.insert(0, str(RUNTIME))
 import tiled_vae
@@ -42,18 +45,51 @@ def digest(path):
     return h.hexdigest()
 
 
+def reject_stacked_vosr2(source):
+    report_path = source.with_name(f'{source.stem}-runtime-report.json')
+    if not report_path.is_file():
+        return
+    report = json.loads(report_path.read_text())
+    if (report.get('output_sha256') == digest(source)
+            and report.get('route', '').startswith('MPS VAE encode + MPS DINOv2')):
+        raise ValueError('Source is already a VOSR2 output; repeated semantic 4x is not approved')
+
+
+def machine_name():
+    return subprocess.check_output(
+        ['sysctl', '-n', 'machdep.cpu.brand_string'], text=True).strip()
+
+
+def verify_package_plan(plan):
+    for key, actual in (('machine', machine_name()),
+                        ('macos_version', platform.mac_ver()[0]),
+                        ('coremltools_version', ct.__version__)):
+        if plan.get(key) != actual:
+            raise ValueError(f'ANE plan {key} is {plan.get(key)!r}, expected {actual!r}')
+    if set(plan['packages']) != {name for name, _ in PACKAGE_STAGES}:
+        raise ValueError('ANE plan package set does not match this executor')
+    for name, _ in PACKAGE_STAGES:
+        evidence = plan['packages'][name]
+        if set(evidence['files']) != set(PACKAGE_FILES):
+            raise ValueError(f'ANE plan file set is incomplete: {name}')
+        for relative in PACKAGE_FILES:
+            path = PACKAGES / name / relative
+            if digest(path) != evidence['files'][relative]:
+                raise ValueError(f'Core ML package changed: {path}')
+        counts = evidence['preferred_devices']
+        if counts.get('MLNeuralEngineComputeDevice', 0) <= counts.get('MLCPUComputeDevice', 0):
+            raise RuntimeError(f'ANE does not own most recognized operations: {name}: {counts}')
+
+
 def load_ane_model(path, verified_plan=None):
     start = time.monotonic()
     model = ct.models.MLModel(str(path), compute_units=ct.ComputeUnit.CPU_AND_NE)
     load_seconds = time.monotonic() - start
+    plan_seconds = 0.0
     if verified_plan is not None:
-        evidence = verified_plan['packages'][path.name]
-        for relative, expected in evidence['files'].items():
-            actual = digest(path / relative)
-            if actual != expected:
-                raise ValueError(f'Core ML package changed: {path / relative}')
-        counts = evidence['preferred_devices']
+        counts = verified_plan['packages'][path.name]['preferred_devices']
     else:
+        start = time.monotonic()
         plan = ct.models.compute_plan.MLComputePlan.load_from_path(
             model.get_compiled_model_path(), compute_units=ct.ComputeUnit.CPU_AND_NE)
         counts = {}
@@ -63,9 +99,10 @@ def load_ane_model(path, verified_plan=None):
                 continue
             key = type(usage.preferred_compute_device).__name__
             counts[key] = counts.get(key, 0) + 1
+        plan_seconds = time.monotonic() - start
     if counts.get('MLNeuralEngineComputeDevice', 0) <= counts.get('MLCPUComputeDevice', 0):
         raise RuntimeError(f'ANE does not own most recognized operations: {counts}')
-    return model, load_seconds, counts
+    return model, load_seconds, plan_seconds, counts
 
 
 def main():
@@ -92,13 +129,15 @@ def main():
         raise FileExistsError('Output and scratch must both be new paths')
     if not args.source.is_file():
         raise FileNotFoundError(args.source)
+    reject_stacked_vosr2(args.source)
     verified_plan = None
     if args.verified_package_plan is not None:
         verified_plan = json.loads(args.verified_package_plan.read_text())
-        machine = subprocess.check_output(
-            ['sysctl', '-n', 'machdep.cpu.brand_string'], text=True).strip()
-        if machine != verified_plan['machine']:
-            raise ValueError(f'ANE device evidence is for {verified_plan["machine"]}, not {machine}')
+        verify_package_plan(verified_plan)
+    source = Image.open(args.source).convert('RGB')
+    width, height = source.size
+    if width % 8 or height % 8:
+        raise ValueError('Source dimensions must be multiples of 8 for exact 4x canvas')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.scratch.mkdir(parents=True)
     torch.manual_seed(args.seed)
@@ -113,10 +152,6 @@ def main():
         report['verified_package_plan_sha256'] = digest(args.verified_package_plan)
     total_start = time.monotonic()
 
-    source = Image.open(args.source).convert('RGB')
-    width, height = source.size
-    if width % 8 or height % 8:
-        raise ValueError('Source dimensions must be multiples of 8 for exact 4x canvas')
     input_image = source.resize((width * 4, height * 4), Image.BICUBIC)
     expected_size = input_image.size
     lq = transforms.ToTensor()(input_image).unsqueeze(0).to('mps') * 2 - 1
@@ -173,9 +208,10 @@ def main():
 
     current_time = np.ones((1,), dtype=np.float32)
     next_time = np.zeros((1,), dtype=np.float32)
-    first, load_seconds, devices = load_ane_model(
+    first, load_seconds, plan_seconds, devices = load_ane_model(
         PACKAGES / 'dit-segment-0-ane.mlpackage', verified_plan)
-    report['stages']['dit_0'] = {'load_seconds': load_seconds, 'preferred_devices': devices}
+    report['stages']['dit_0'] = {'load_seconds': load_seconds,
+                                 'plan_seconds': plan_seconds, 'preferred_devices': devices}
     start = time.monotonic()
     for index in range(len(locations)):
         with np.load(args.scratch / f'tile-{index:03d}.npz') as tile:
@@ -189,9 +225,10 @@ def main():
     del first
     gc.collect()
 
-    second, load_seconds, devices = load_ane_model(
+    second, load_seconds, plan_seconds, devices = load_ane_model(
         PACKAGES / 'dit-segment-1-ane.mlpackage', verified_plan)
-    report['stages']['dit_1'] = {'load_seconds': load_seconds, 'preferred_devices': devices}
+    report['stages']['dit_1'] = {'load_seconds': load_seconds,
+                                 'plan_seconds': plan_seconds, 'preferred_devices': devices}
     weight = tiled_vae._gaussian_weights(tile_size, tile_size, channels, 'cpu').numpy()
     velocity_acc = np.zeros_like(z_array)
     weight_acc = np.zeros_like(z_array)
@@ -211,9 +248,10 @@ def main():
     del second, velocity_acc, weight_acc
     gc.collect()
 
-    decoder, load_seconds, devices = load_ane_model(
+    decoder, load_seconds, plan_seconds, devices = load_ane_model(
         PACKAGES / 'qwen-vae-decoder-128-ane.mlpackage', verified_plan)
     report['stages']['vae_decoder'] = {'load_seconds': load_seconds,
+                                       'plan_seconds': plan_seconds,
                                        'preferred_devices': devices}
     original_decode = tiled_vae.decode_latent
 
@@ -248,12 +286,11 @@ def main():
     report['output_bytes'] = args.output.stat().st_size
     report['timings'] = timings
     if args.save_package_plan:
-        machine = subprocess.check_output(
-            ['sysctl', '-n', 'machdep.cpu.brand_string'], text=True).strip()
-        plan = {'machine': machine, 'evidence': str(args.output), 'packages': {}}
-        for name, stage in (('dit-segment-0-ane.mlpackage', 'dit_0'),
-                            ('dit-segment-1-ane.mlpackage', 'dit_1'),
-                            ('qwen-vae-decoder-128-ane.mlpackage', 'vae_decoder')):
+        plan = {'machine': machine_name(),
+                'macos_version': platform.mac_ver()[0],
+                'coremltools_version': ct.__version__,
+                'evidence': str(args.output), 'packages': {}}
+        for name, stage in PACKAGE_STAGES:
             package = PACKAGES / name
             plan['packages'][name] = {
                 'files': {relative: digest(package / relative) for relative in PACKAGE_FILES},

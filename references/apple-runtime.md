@@ -49,7 +49,8 @@ Use `scripts/apple_mps_upscale.py`. Its minimal Python runtime contains only the
 - Require `torch.device("mps")`; abort if MPS is unavailable.
 - Use the x4 RRDBNet model with tiled inference. The validated baseline is tile size 256, tile padding 24, no half precision, and no pre-padding.
 - The x4 model performs neural reconstruction first. When the requested delivery scale is between native model scales, Real-ESRGAN may downsample the x4 neural result to the exact target, matching the validated workflow used for the prior 12K delivery.
-- Preserve the source aspect ratio exactly. Reject target dimensions that do not match it.
+- `apple_mps_upscale.py --preset 6k|12k` uses a 6144- or 12288-pixel long edge and rounds only the short edge to an integer pixel. It rejects a requested scale above the model's native 4×. The tiled executor copies each completed tile to an 8-bit output canvas instead of holding a full float32 output on MPS; a non-4× result uses a work-volume temporary native canvas that is removed after resampling. Small 4× and 2× parity fixtures were byte-identical to the earlier full-canvas implementation.
+- For explicit dimensions, require the source aspect ratio exactly. Presets preserve it to the nearest integer output pixel; record both final dimensions.
 - Record model hash, runtime, PyTorch version, MPS device, disabled fallback state, tile settings, source hash, output hash, dimensions, and elapsed time.
 
 For VOSR2, use the pinned runtime patch and choose one exact 4x route: [MPS-only](vosr2-apple.md) or [MPS–ANE hybrid](vosr2-ane.md). The MPS-only run released the temporary checkpoint after loading and released DiT/DINOv2 from MPS before Qwen VAE decode; omitting those lifecycle steps caused severe swapping and unusable runtime. The hybrid uses separate Core ML packages for DiT and decode. A passing crop never substitutes for a full-resolution native-pixel review.

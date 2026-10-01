@@ -24,7 +24,21 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
+In Codex, invoke `$super-resolution` with an image, target size, and whether invented detail is allowed. The skill routes the image, records native-pixel reviews, and runs only the selected backend.
+
 ## Workflow
+
+For an approved master, `--preset 6k` or `--preset 12k` sets the long edge to 6144 or 12288 pixels and keeps the source composition. The selected image must be large enough for a neural scale of at most 4×: for a 3:2 landscape, at least 1536×1024 for 6K or 3072×2048 for 12K. No smaller-resolution substitute is produced.
+
+```bash
+python scripts/apple_mps_upscale.py approved.png result-6k.png \
+  --preset 6k --approval approved.png.approval.json
+python scripts/apple_mps_upscale.py approved-3k.png result-12k.png \
+  --preset 12k --approval approved-3k.png.approval.json
+```
+
+These commands perform a single MPS neural pass and write a hash-bound runtime report. The 6K and 12K presets are output sizes, not guarantees that missing faces or materials can be recovered; finish with native-pixel review before delivery. For creative photographic reconstruction, use the separately gated VOSR2 route below.
+The 12K route requires a separately approved 3K-or-larger semantic master. Do not use a previous VOSR2 output as the input to another VOSR2 pass: repeating generative enlargement increases pixels without proving more authentic detail.
 
 ### 1. Preflight and normalize
 
@@ -73,7 +87,7 @@ For an approved master whose semantics are already sound, use Real-ESRGAN:
 ```bash
 PYTORCH_ENABLE_MPS_FALLBACK=0 python scripts/apple_mps_upscale.py \
   semantic-master.png mps-output.png \
-  --target-width 7680 --target-height 4320 \
+  --preset 6k \
   --approval semantic-master.png.approval.json \
   --runtime /safe/volume/sr-runtime
 
@@ -81,7 +95,7 @@ python scripts/composite_regions.py work/repair/regions-manifest.json final.png 
   --base mps-output.png --approval semantic-master.png.approval.json
 
 python scripts/finalize_delivery.py final.png delivery.json \
-  --width 7680 --height 4320 \
+  --width 6144 --height 3456 \
   --final-review final-review.json \
   --operation-report final.png.composite-report.json
 ```

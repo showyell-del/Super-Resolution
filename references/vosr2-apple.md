@@ -1,6 +1,7 @@
 # VOSR2 photographic reconstruction on Apple MPS
 
 Use this route only when the visual contract permits **creative** photographic detail reconstruction. It is not identity recovery, exact text restoration, or a substitute for source-supported geometry. The verified scale is 4x. Route selection is made before inference; this is not a fallback after another backend fails.
+Do not use a previous VOSR2 result as the source for another 4x pass. For 12K, first approve an independently detailed semantic master at least 3072 pixels on the long edge; more pixels from a prior pass are not new visual evidence.
 
 ## Tested configuration
 
