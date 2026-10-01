@@ -1,6 +1,6 @@
 # Apple Silicon MPS runtime contract
 
-This workflow has two verified, purpose-specific PyTorch MPS paths on an Apple M-series Mac: Real-ESRGAN for enlargement of an approved master, and [VOSR2](vosr2-apple.md) for photographic creative reconstruction after a passing 4x crop trial. Core ML Tools is not required. There is no CPU or CUDA fallback.
+This workflow has Real-ESRGAN on PyTorch MPS and two purpose-specific VOSR2 routes after a passing 4x photographic crop trial: [MPS-only](vosr2-apple.md) and [MPS–ANE hybrid](vosr2-ane.md). Core ML Tools is required only to prepare and run the ANE hybrid. Choose the route before inference; there is no CPU-only, CUDA, or lower-resolution fallback.
 
 ## Mandatory preflight
 
@@ -22,7 +22,7 @@ Requirements:
 - report free space on the swap volume and every involved native volume without a fixed cutoff;
 - PyTorch built with MPS and `torch.backends.mps.is_available()` returning true.
 
-Do not offer a lower-resolution fallback, CPU inference, CUDA, Core ML conversion, ordinary interpolation, or another output size.
+Do not offer a lower-resolution fallback, CPU-only image inference, CUDA, ordinary interpolation, or another output size. The ANE route's Core ML conversion traces on CPU, while image inference uses MPS plus Core ML `CPU_AND_NE` with a small number of CPU-preferred operations.
 
 Use one command to check every path and retain the report:
 
@@ -52,7 +52,7 @@ Use `scripts/apple_mps_upscale.py`. Its minimal Python runtime contains only the
 - Preserve the source aspect ratio exactly. Reject target dimensions that do not match it.
 - Record model hash, runtime, PyTorch version, MPS device, disabled fallback state, tile settings, source hash, output hash, dimensions, and elapsed time.
 
-For VOSR2, use only the pinned runtime patch and the exact 4x workflow in [vosr2-apple.md](vosr2-apple.md). The verified M2/16 GiB run released the temporary checkpoint after loading and released DiT/DINOv2 from MPS before Qwen VAE decode; omitting those lifecycle steps caused severe swapping and unusable runtime. A passing crop never substitutes for a full-resolution native-pixel review.
+For VOSR2, use the pinned runtime patch and choose one exact 4x route: [MPS-only](vosr2-apple.md) or [MPS–ANE hybrid](vosr2-ane.md). The MPS-only run released the temporary checkpoint after loading and released DiT/DINOv2 from MPS before Qwen VAE decode; omitting those lifecycle steps caused severe swapping and unusable runtime. The hybrid uses separate Core ML packages for DiT and decode. A passing crop never substitutes for a full-resolution native-pixel review.
 
 ## Storage and stability
 
@@ -62,4 +62,4 @@ Low system-disk space can still cause memory pressure or a restart even when job
 
 ## Dependencies
 
-The bundled runtime still requires a compatible Python environment with PyTorch, Pillow, NumPy, and OpenCV. Missing dependencies are blocking errors. Do not install Core ML Tools for this workflow.
+The bundled runtime still requires a compatible Python environment with PyTorch, Pillow, NumPy, and OpenCV. Missing dependencies are blocking errors. Core ML Tools 9.0 is required for the ANE route but not for Real-ESRGAN or MPS-only VOSR2.

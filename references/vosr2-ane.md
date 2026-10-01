@@ -1,0 +1,52 @@
+# VOSR2 hybrid Apple Neural Engine route
+
+Use for 4x **creative photographic reconstruction** after the same native-pixel crop gate as [VOSR2 on MPS](vosr2-apple.md). Choose this route before the full render; it is not an automatic fallback. Exact identity, logos, text, and intentionally soft background detail remain outside its reconstruction claim.
+
+The validated split is Qwen VAE encode and DINOv2-L features on PyTorch MPS, pretrained DiT blocks 0–17 and 18–35 on two Core ML packages, then Qwen VAE decode on Core ML. Use `CPU_AND_NE`: the compute plan on the tested Apple M2 preferred ANE for 2,212 and 2,226 DiT operations and 272 decoder operations, with 18 DiT operations CPU-preferred. This is **not** full-ANE inference. Do not use the converted DINOv2-L package: 2 of 25 real tiles had large numerical outliers despite a passing single-tile test.
+
+## Requirements and preparation
+
+- Apple M-series Mac, macOS 15 or later, MPS available, work-volume runtime/scratch/output. Run `apple_preflight.py --check-mps` immediately before loading. There is no fixed free-space threshold; stop on actual memory or disk errors.
+- Pinned VOSR2, Qwen VAE, and local DINOv2 weights and checkout prepared as in [VOSR2 on MPS](vosr2-apple.md). The converter checks SHA-256 of the pinned DiT and VAE weight files. Do not modify the upstream weights to make a mismatch pass.
+- The tested environment used PyTorch 2.8.0, torchvision 0.23.0, Core ML Tools 9.0, plus the VOSR2 dependencies in that reference. Core ML Tools is required **for this ANE route**, not for the MPS-only route. Conversion traces the pinned model on CPU; delivered-image inference does not switch to a CPU model.
+
+Install the ANE-specific dependency into the work-volume VOSR2 environment with `python -m pip install coremltools==9.0` after the pinned VOSR2 dependencies are present.
+
+Build the three fixed-shape packages once, on the work volume. Run each component in a separate process so conversion memory is released:
+
+```bash
+python scripts/convert_vosr2_ane.py --runtime /work/vosr \
+  --output-dir /work/vosr2-ane --component dit0
+python scripts/convert_vosr2_ane.py --runtime /work/vosr \
+  --output-dir /work/vosr2-ane --component dit1
+python scripts/convert_vosr2_ane.py --runtime /work/vosr \
+  --output-dir /work/vosr2-ane --component decoder
+```
+
+These are 64×64 latent DiT tiles and 128×128 latent decoder tiles. Conversion success is **not** proof of ANE placement or image quality. Check the target Mac's Core ML compute plan during the required 4x crop trial; the full job may reuse its hash-bound plan evidence only on the same CPU model and unchanged package bytes.
+
+## Execute and verify
+
+Use an approved source or trial crop whose width and height are multiples of 8. The script creates exactly 4x dimensions, refuses an existing output or scratch path, disables PyTorch MPS fallback, verifies ANE-preferred compute plans, and writes a runtime report next to the candidate. On a new Mac or rebuilt packages, make the crop trial without `--verified-package-plan` to create fresh evidence:
+
+```bash
+VOSR2_RUNTIME=/work/vosr VOSR2_ANE_PACKAGES=/work/vosr2-ane \
+PYTORCH_ENABLE_MPS_FALLBACK=0 python scripts/vosr2_ane_hybrid.py \
+  --source /work/job/approved-crop.png \
+  --output /work/job/crop-trial.png --scratch /work/job/crop-scratch \
+  --seed 42 --align wavelet \
+  --save-package-plan /work/vosr2-ane/verified-plan.json
+```
+
+Only after the crop passes native-pixel review, run the approved full source with new output/scratch paths and `--verified-package-plan /work/vosr2-ane/verified-plan.json` instead of `--save-package-plan`. This avoids repeated compute-plan introspection but still hashes the package files. Never copy plan evidence to a different CPU model. Keep tile scratch out of the delivery directory and retain only one full-resolution deliverable.
+
+## Two independent verdicts
+
+1. **Backend execution:** verify the pinned package hashes, target-device compute plan, disabled MPS fallback, completed output, dimensions, hash, and end-to-end time. This establishes which components ran and whether the job finished; it does not establish image quality.
+2. **Image quality:** at 100%, compare every critical face, material, repeated line, foliage, focus falloff, and tile boundary with the source, intended look, and any designated reference. A failed crop blocks a full run even when the backend verdict passes. A final file needs its own hash-bound `final-review.json` and `finalize_delivery.py` approval.
+
+To investigate a suspected ANE-specific artifact, run a **separate diagnostic** MPS-only control on the identical crop with the same pinned weights, seed, preprocessing, scale, and alignment. Compare both outputs at native pixels and record numerical differences. Do not deliver the control as an automatic fallback. If the control does not finish, backend attribution remains undetermined; an image-quality failure alone cannot be labeled an ANE failure.
+
+## Verified scope
+
+On an Apple M2 16 GiB Mac, one 1536×1024 synthetic three-person scene reached 6144×4096 in 463.10 s wall time and passed its native-pixel review. Rebuilt packages reproduced the earlier 2K ANE crop byte-for-byte. A later still-life scene completed 6K in 489.70 s, but its final review found a malformed citrus cut face inherited from the source. A night-architecture crop failed material-quality review on **both** ANE hybrid and a completed same-input MPS-only control, with near-identical local appearance; the defect is not ANE-specific in that paired trial. A daylight two-person crop passed only its local review. These outcomes validate hybrid execution and image-specific successes, not universal photographic quality or real-person identity recovery. Detailed local evidence is recorded in the repository's `Agent.md`.

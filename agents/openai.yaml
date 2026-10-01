@@ -1,4 +1,4 @@
 interface:
   display_name: "Super-Resolution"
   short_description: "按画面风格分层修复细节并验证超分结果"
-  default_prompt: "使用 $super-resolution：先判断目标风格与缺陷范围，比较无编辑、局部修复和整图修复的工作量；只在能改变决策时试局部，分层修复并通过观感检查后用 Apple MPS 放大、终检交付。"
+  default_prompt: "使用 $super-resolution：先判断目标风格与缺陷范围，完成必要的语义修复；预先选择已验证的 Apple MPS 或 MPS–神经网络引擎路线，放大后按原生像素终检交付。"

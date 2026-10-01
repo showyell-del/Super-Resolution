@@ -13,7 +13,7 @@ Measure face width in the semantic master.
 
 Thresholds are fixed. Do not pass a report by lowering them.
 
-Create all required repairs as one plan before MPS. Group adjacent people only when every face reaches working density and enough body and scene context remains. Otherwise use individual regions. Keep accepted repair outputs at high density and composite them once onto the enlarged canvas; never shrink them into the semantic master.
+Create all required repairs as one plan before the selected neural run. Group adjacent people only when every face reaches working density and enough body and scene context remains. Otherwise use individual regions. Keep accepted repair outputs at high density and composite them once onto the enlarged canvas; never shrink them into the semantic master.
 
 ## Truth and identity
 

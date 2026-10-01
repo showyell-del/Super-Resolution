@@ -1,6 +1,6 @@
 # Visual routing before any prompt
 
-Infer the look from visible evidence, then reconcile it with the user's explicit request. Record a short source-to-target visual contract in the native review before generation; review it again before MPS. When references disagree, the user's stated target and the designated content reference take priority for their respective roles.
+Infer the look from visible evidence, then reconcile it with the user's explicit request. Record a short source-to-target visual contract in the native review before generation; review it again before neural enlargement. When references disagree, the user's stated target and the designated content reference take priority for their respective roles.
 
 | Source / target look | Preserve and resolve | Typical false detail to reject |
 | --- | --- | --- |

@@ -2,7 +2,7 @@
 
 Style-routed semantic reconstruction and verified neural enlargement for Apple Silicon.
 
-The pipeline identifies the source and requested visual style, chooses the least editing work that meets the quality target, then selects a verified MPS route. Real-ESRGAN enlarges approved content; VOSR2 can creatively reconstruct missing photographic detail. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before delivery.
+The pipeline identifies the source and requested visual style, chooses the least editing work that meets the quality target, then selects a verified Apple Silicon route. Real-ESRGAN enlarges approved content; VOSR2 can creatively reconstruct missing photographic detail on MPS or a tested MPS–Neural Engine hybrid. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before delivery.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ The pipeline identifies the source and requested visual style, chooses the least
 - Python 3.9+
 - PyTorch with MPS available
 
-CUDA, CPU inference, Core ML conversion, interpolation-only delivery, and resolution fallback are intentionally unsupported.
+CUDA, CPU-only image inference, interpolation-only delivery, and resolution fallback are intentionally unsupported. The ANE hybrid requires macOS 15+, Core ML Tools 9.0, and separately converted pinned model packages.
 
 ## Install
 
@@ -88,7 +88,7 @@ python scripts/finalize_delivery.py final.png delivery.json \
 
 Inspect the exact final pixels and fill [final-review.json](assets/final-review.json) with the final file's SHA-256, appearance passes, and inspected regions before delivery. If no repair pack is needed, review and finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
 
-For a photographic target that permits invented detail, use the pinned [VOSR2 Apple MPS route](references/vosr2-apple.md) instead, after a passing 4x crop trial. Its large upstream weights are downloaded to the work volume rather than bundled. On the tested M2/16 GiB Mac, 1536×1024 → 6144×4096 took 672 seconds of model processing and passed native-pixel review of three fictional faces, fabrics, glazing, and background focus. This is one verified scene, not a promise that every image will pass. Do not run Real-ESRGAN after VOSR2 or use VOSR2 to recreate exact identities, text, or logos.
+For a photographic target that permits invented detail, use VOSR2 after a passing 4x crop trial. Prefer the [MPS–ANE hybrid](references/vosr2-ane.md) when its packages and target-device compute plan are verified; the [MPS-only route](references/vosr2-apple.md) remains a separate choice, never a silent fallback. Large upstream weights live on the work volume, not in this repository. One M2/16 GiB test of a synthetic three-person scene reached 6144×4096 in 463 seconds wall time with the hybrid and passed native-pixel review; MPS-only took 672 seconds of model processing on the same scene. Backend execution and image quality are separate verdicts: an ANE compute plan proves neither photographic realism nor that a visual defect was caused by ANE. This does not establish universal image quality or full-ANE execution. Do not run Real-ESRGAN after VOSR2 or use VOSR2 to recreate exact identities, text, or logos.
 
 ## Resolution
 
