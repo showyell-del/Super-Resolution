@@ -55,6 +55,44 @@ Use `scripts/apple_mps_upscale.py`. Its minimal Python runtime contains only the
 
 For VOSR2, use the pinned runtime patch and choose one exact 4x route: [MPS-only](vosr2-apple.md) or [MPS–ANE hybrid](vosr2-ane.md). The MPS-only run released the temporary checkpoint after loading and released DiT/DINOv2 from MPS before Qwen VAE decode; omitting those lifecycle steps caused severe swapping and unusable runtime. The hybrid uses separate Core ML packages for DiT and decode. A passing crop never substitutes for a full-resolution native-pixel review.
 
+## Photographic crop gate
+
+For a camera-photo target with acceptance-critical people or a requested scale above 2x, the Real-ESRGAN CLI rejects a full run without `--trial-review`. Select a contextual face-and-fabric or material-and-focus crop; use the same model, tile, and padding as the planned full run. Source semantic approval is still required for the trial.
+
+```bash
+python scripts/apple_mps_upscale.py approved.png crop.png \
+  --approval approved.png.approval.json --runtime "$SR_WORK" \
+  --trial-box 320 240 512 512 --target-width 2048 --target-height 2048
+```
+
+Choose coordinates for the actual source; the example is not an automatic region detector. Inspect `crop.png` at 100% and at the intended final viewing scale alongside the original crop. Copy `assets/final-review.json` to `crop-review.json`, fill its existing checks and concrete region notes, set `image_sha256` to the actual crop hash, and add these fields:
+
+```json
+{
+  "image": "/absolute/work-volume/job/crop.png",
+  "people_review": {
+    "checks": {
+      "eyes_and_gaze": "pending",
+      "mouth_and_teeth": "pending",
+      "skin_texture": "pending",
+      "identity_and_distinctness": "pending",
+      "hair_hands_and_anatomy": "pending",
+      "wardrobe_and_material_integration": "pending"
+    }
+  }
+}
+```
+
+The people checks are mandatory only when people are acceptance-critical. Set a check to `pass` only after visual inspection. If any required item fails, stop this render. After a genuine pass:
+
+```bash
+python scripts/apple_mps_upscale.py approved.png result-12k.png \
+  --preset 12k --approval approved.png.approval.json --runtime "$SR_WORK" \
+  --trial-review crop-review.json
+```
+
+The CLI verifies the reviewed crop bytes, its runtime report, original-source hash, model hash, tile settings, MPS execution, and an enlargement scale at least as demanding as the full run. It records the review hash in the full-run report. Changing the source, model, settings, or crop pixels invalidates that evidence. This enforces evidence consistency; the script cannot determine photographic realism. Final native-pixel review remains required.
+
 ## Storage and stability
 
 Unified memory, MPS allocations, decoded source pixels, neural x4 tiles, final PNG encoding, macOS swap, and generated semantic tiles can coexist temporarily. Re-run preflight immediately before loading the model because available space may have changed during reconstruction.

@@ -19,12 +19,16 @@ CUDA, CPU-only image inference, interpolation-only delivery, and resolution fall
 git clone https://github.com/showyell-del/Super-Resolution.git \
   ~/.codex/skills/super-resolution
 cd ~/.codex/skills/super-resolution
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+SR_WORK=/Volumes/work/Ai/Super-Resolution-runtime
+mkdir -p "$SR_WORK/tmp" "$SR_WORK/pip-cache"
+python3 -m venv "$SR_WORK/.venv"
+source "$SR_WORK/.venv/bin/activate"
+TMPDIR="$SR_WORK/tmp" PIP_CACHE_DIR="$SR_WORK/pip-cache" \
+  python -m pip install -r requirements.txt
+python scripts/stage_runtime.py "$SR_WORK"
 ```
 
-In Codex, invoke `$super-resolution` with an image, target size, and whether invented detail is allowed. The skill routes the image, records native-pixel reviews, and runs only the selected backend.
+Change `SR_WORK` to your work volume. In Codex, invoke `$super-resolution` with an image, target size, and whether invented detail is allowed. The skill routes the image, records native-pixel reviews, and runs only the selected backend. Real-ESRGAN's weight is bundled; VOSR2 and its ANE packages require the separate setup below.
 
 ## Workflow
 
@@ -32,12 +36,13 @@ For an approved master, `--preset 6k` or `--preset 12k` sets the long edge to 61
 
 ```bash
 python scripts/apple_mps_upscale.py approved.png result-6k.png \
-  --preset 6k --approval approved.png.approval.json
+  --preset 6k --approval approved.png.approval.json --runtime "$SR_WORK"
 python scripts/apple_mps_upscale.py approved-3k.png result-12k.png \
-  --preset 12k --approval approved-3k.png.approval.json
+  --preset 12k --approval approved-3k.png.approval.json --runtime "$SR_WORK"
 ```
 
 These commands perform a single MPS neural pass and write a hash-bound runtime report. The 6K and 12K presets are output sizes, not guarantees that missing faces or materials can be recovered; finish with native-pixel review before delivery. For creative photographic reconstruction, use the separately gated VOSR2 route below.
+Photographic people, or photographic enlargement above 2x, require a passing crop review before a full Real-ESRGAN run. Use `--trial-box X Y W H` to test an approved-source crop at 4x, inspect the actual pixels, then supply `--trial-review crop-review.json` for the full run. See the [crop review example](references/apple-runtime.md#photographic-crop-gate). A failed trial stops the render.
 The 12K route requires a separately approved 3K-or-larger semantic master. Do not use a previous VOSR2 output as the input to another VOSR2 pass: repeating generative enlargement increases pixels without proving more authentic detail.
 
 ### 1. Preflight and normalize
@@ -103,6 +108,8 @@ python scripts/finalize_delivery.py final.png delivery.json \
 Inspect the exact final pixels and fill [final-review.json](assets/final-review.json) with the final file's SHA-256, appearance passes, and inspected regions before delivery. If no repair pack is needed, review and finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
 
 For a photographic target that permits invented detail, use VOSR2 after a passing 4x crop trial. Prefer the [MPS–ANE hybrid](references/vosr2-ane.md) when its packages and target-device compute plan are verified; the [MPS-only route](references/vosr2-apple.md) remains a separate choice, never a silent fallback. Large upstream weights live on the work volume, not in this repository. One M2/16 GiB test of a synthetic three-person scene reached 6144×4096 in 463 seconds wall time with the hybrid and passed native-pixel review; MPS-only took 672 seconds of model processing on the same scene. Backend execution and image quality are separate verdicts: an ANE compute plan proves neither photographic realism nor that a visual defect was caused by ANE. This does not establish universal image quality or full-ANE execution. Do not run Real-ESRGAN after VOSR2 or use VOSR2 to recreate exact identities, text, or logos.
+
+The 12K backend has completed a 12288×8192 run on M2, but an independent real-photo crop test failed facial fidelity and material detail. Universal photographic 12K quality is not validated. A fresh public clone, isolated Python environment, dependency check, script regression, and real MPS inference were verified on M2/macOS 15.7.5; this installation check does not certify image appearance.
 
 ## Resolution
 

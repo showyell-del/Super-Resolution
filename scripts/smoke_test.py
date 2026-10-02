@@ -16,6 +16,67 @@ from PIL import Image, ImageDraw
 from build_contact_sheet import normalized_sharpness
 
 
+def check_crop_gate(workspace: Path) -> None:
+    from apple_mps_upscale import needs_crop_trial, validate_crop_trial
+    from approve_semantic_master import REQUIRED_PEOPLE_CHECKS
+
+    approval = {"review": {"visual_contract": {"target_look": "camera_photo"},
+                           "subject_report_required": True}}
+    assert needs_crop_trial(approval, 1.5)
+    approval["review"]["subject_report_required"] = False
+    assert not needs_crop_trial(approval, 2)
+    assert needs_crop_trial(approval, 4)
+    approval["review"]["visual_contract"]["target_look"] = "illustration"
+    assert not needs_crop_trial(approval, 4)
+
+    image = workspace / "trial-gate-fixture.png"
+    Image.new("RGB", (256, 256), "#777777").save(image)
+    image_hash = hashlib.sha256(image.read_bytes()).hexdigest()
+    review = {"image": str(image), "image_sha256": image_hash,
+              "review_scale": "100% native pixels",
+              "appearance_checks": visual_review()["appearance_checks"],
+              "people_review": {"checks": {key: "pass" for key in REQUIRED_PEOPLE_CHECKS}},
+              "regions": [{"box": [0, 0, 256, 256], "status": "pass",
+                           "note": "Schema fixture; no photographic quality claim."}],
+              "reviewer_note": "Schema fixture only."}
+    report = {"source_sha256": "source-fixture", "output_sha256": image_hash,
+              "weights_sha256": "weights-fixture", "tile": 256, "tile_pad": 24,
+              "device": "mps", "mps_fallback": False, "target": [256, 256],
+              "trial_box": [0, 0, 64, 64], "delivery_scale": 4}
+    review_path = workspace / "trial-gate-review.json"
+    report_path = image.with_suffix(image.suffix + ".mps-report.json")
+    review_path.write_text(json.dumps(review), encoding="utf-8")
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    validate_crop_trial(review_path, "source-fixture", 4, "weights-fixture", 256, 24, True)
+
+    cases = [("source", ("changed-source", 4, "weights-fixture", 256, 24, True)),
+             ("model", ("source-fixture", 4, "changed-model", 256, 24, True)),
+             ("settings", ("source-fixture", 4, "weights-fixture", 128, 24, True)),
+             ("scale", ("source-fixture", 5, "weights-fixture", 256, 24, True))]
+    for name, arguments in cases:
+        try:
+            validate_crop_trial(review_path, *arguments)
+        except ValueError:
+            continue
+        raise RuntimeError(f"Invalid crop {name} evidence was accepted")
+    for key in ("mouth_and_teeth", "skin_texture"):
+        changed = json.loads(json.dumps(review))
+        changed["people_review"]["checks"][key] = "fail"
+        review_path.write_text(json.dumps(changed), encoding="utf-8")
+        try:
+            validate_crop_trial(review_path, "source-fixture", 4, "weights-fixture", 256, 24, True)
+        except ValueError:
+            continue
+        raise RuntimeError(f"Failed crop {key} was accepted")
+    review_path.write_text(json.dumps(review), encoding="utf-8")
+    Image.new("RGB", (256, 256), "#888888").save(image)
+    try:
+        validate_crop_trial(review_path, "source-fixture", 4, "weights-fixture", 256, 24, True)
+    except ValueError:
+        return
+    raise RuntimeError("Changed crop pixels were accepted")
+
+
 def run(*arguments: str, expect: int = 0) -> None:
     result = subprocess.run([sys.executable, *arguments], text=True, capture_output=True)
     if result.returncode != expect:
@@ -51,6 +112,7 @@ def main() -> None:
     root = Path(__file__).resolve().parent.parent
     scripts = root / "scripts"
     args.workspace.mkdir(parents=True, exist_ok=True)
+    check_crop_gate(args.workspace)
 
     width, height = 641, 360
     array = np.zeros((height, width, 3), dtype=np.uint8)

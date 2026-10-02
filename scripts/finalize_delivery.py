@@ -35,6 +35,33 @@ def parse_artifact(value: str) -> tuple[str, Path]:
     return role.strip(), Path(raw_path)
 
 
+def validate_native_review(review: dict, image_hash: str, size: tuple[int, int]) -> None:
+    """Validate the same byte-bound review for a trial or final image."""
+    if review.get("review_scale") != "100% native pixels":
+        raise ValueError("Review must inspect 100% native pixels")
+    if review.get("image_sha256") != image_hash:
+        raise ValueError("Review does not match the image bytes")
+    checks = review.get("appearance_checks")
+    if not isinstance(checks, dict) or set(checks) != REQUIRED_APPEARANCE_CHECKS:
+        raise ValueError(f"appearance_checks must contain exactly: {sorted(REQUIRED_APPEARANCE_CHECKS)}")
+    if any(value != "pass" for value in checks.values()):
+        raise ValueError("Appearance checks have not all passed")
+    regions = review.get("regions")
+    if not isinstance(regions, list) or not regions:
+        raise ValueError("Review needs at least one representative native-pixel region")
+    for item in regions:
+        box = item.get("box") if isinstance(item, dict) else None
+        if not isinstance(box, list) or len(box) != 4 or not all(type(value) is int for value in box):
+            raise ValueError("Review regions need integer [x,y,width,height] boxes")
+        x, y, w, h = box
+        if x < 0 or y < 0 or w < 1 or h < 1 or x + w > size[0] or y + h > size[1]:
+            raise ValueError("Review region exceeds the image canvas")
+        if item.get("status") != "pass" or not str(item.get("note", "")).strip():
+            raise ValueError("Every review region needs a pass and concrete note")
+    if not str(review.get("reviewer_note", "")).strip():
+        raise ValueError("Review needs a concrete reviewer_note")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("final_image", type=Path)
@@ -67,29 +94,10 @@ def main() -> None:
     if not args.final_review.is_file():
         parser.error(f"Missing final native-pixel review: {args.final_review}")
     review = json.loads(args.final_review.read_text(encoding="utf-8"))
-    if review.get("review_scale") != "100% native pixels":
-        parser.error("Final review must inspect 100% native pixels")
-    if review.get("image_sha256") != final_metadata["sha256"]:
-        parser.error("Final review does not match the delivered image bytes")
-    checks = review.get("appearance_checks")
-    if not isinstance(checks, dict) or set(checks) != REQUIRED_APPEARANCE_CHECKS:
-        parser.error(f"Final appearance_checks must contain exactly: {sorted(REQUIRED_APPEARANCE_CHECKS)}")
-    if any(value != "pass" for value in checks.values()):
-        parser.error("Final appearance checks have not all passed")
-    regions = review.get("regions")
-    if not isinstance(regions, list) or not regions:
-        parser.error("Final review needs at least one representative native-pixel region")
-    for item in regions:
-        box = item.get("box") if isinstance(item, dict) else None
-        if not isinstance(box, list) or len(box) != 4 or not all(isinstance(value, int) for value in box):
-            parser.error("Final review regions need integer [x,y,width,height] boxes")
-        x, y, w, h = box
-        if x < 0 or y < 0 or w < 1 or h < 1 or x + w > args.width or y + h > args.height:
-            parser.error("Final review region exceeds the delivered canvas")
-        if item.get("status") != "pass" or not str(item.get("note", "")).strip():
-            parser.error("Every final review region needs a pass and concrete note")
-    if not str(review.get("reviewer_note", "")).strip():
-        parser.error("Final review needs a concrete reviewer_note")
+    try:
+        validate_native_review(review, final_metadata["sha256"], (args.width, args.height))
+    except ValueError as error:
+        parser.error(str(error))
 
     artifacts = []
     for role, path in args.artifact:

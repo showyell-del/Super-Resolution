@@ -15,6 +15,8 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from approve_semantic_master import REQUIRED_PEOPLE_CHECKS
+from finalize_delivery import validate_native_review
 from realesrgan_mps import RealESRGANMPS
 
 EXPECTED_WEIGHTS_SHA256 = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
@@ -26,6 +28,35 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def needs_crop_trial(approval: dict, scale: float) -> bool:
+    review = approval["review"]
+    return (review["visual_contract"]["target_look"] == "camera_photo"
+            and (scale > 2 or review.get("subject_report_required") is True))
+
+
+def validate_crop_trial(path: Path, source_hash: str, scale: float,
+                        weights_hash: str, tile: int, tile_pad: int,
+                        people_required: bool) -> None:
+    review = json.loads(path.read_text(encoding="utf-8"))
+    image = Path(review["image"])
+    image_hash = sha256(image)
+    with Image.open(image) as pixels:
+        validate_native_review(review, image_hash, pixels.size)
+        size = list(pixels.size)
+    report = json.loads(image.with_suffix(image.suffix + ".mps-report.json").read_text(encoding="utf-8"))
+    expected = {"source_sha256": source_hash, "output_sha256": image_hash,
+                "weights_sha256": weights_hash, "tile": tile, "tile_pad": tile_pad,
+                "device": "mps", "mps_fallback": False, "target": size}
+    if any(report.get(key) != value for key, value in expected.items()):
+        raise ValueError("Crop trial belongs to a different source, model, settings, or output")
+    if not report.get("trial_box") or report.get("delivery_scale", 0) < scale:
+        raise ValueError("Crop trial must cover at least the requested enlargement scale")
+    if people_required:
+        checks = review.get("people_review", {}).get("checks", {})
+        if set(checks) != REQUIRED_PEOPLE_CHECKS or any(value != "pass" for value in checks.values()):
+            raise ValueError("Photographic crop trial requires all facial and wardrobe checks to pass")
 
 
 def main() -> None:
@@ -45,6 +76,8 @@ def main() -> None:
     parser.add_argument("--approval", type=Path, required=True)
     parser.add_argument("--trial-box", nargs=4, type=int, metavar=("X", "Y", "W", "H"),
                         help="upscale only this approved-source crop before committing to a full render")
+    parser.add_argument("--trial-review", type=Path,
+                        help="byte-bound passing crop review; required for high-risk photographic full runs")
     args = parser.parse_args()
 
     weights = args.weights or args.runtime / "weights" / "RealESRGAN_x4plus.pth"
@@ -108,6 +141,19 @@ def main() -> None:
     if target_width < 1 or target_height < 1:
         parser.error("Target dimensions must be positive")
 
+    if args.trial_review and args.trial_box:
+        parser.error("A diagnostic crop cannot use another crop's approval")
+    if not args.trial_box and needs_crop_trial(approval, delivery_scale):
+        if not args.trial_review:
+            parser.error("Photographic enlargement requires a passing --trial-review before the full run")
+    if args.trial_review:
+        try:
+            validate_crop_trial(args.trial_review, source_hash, delivery_scale, weights_hash,
+                                args.tile, args.tile_pad,
+                                approval["review"].get("subject_report_required") is True)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(f"Invalid crop trial: {error}")
+
     input_rgb = np.asarray(source_original.convert("RGB"), dtype=np.uint8)
     input_bgr = cv2.cvtColor(input_rgb, cv2.COLOR_RGB2BGR)
     upsampler = RealESRGANMPS(
@@ -141,6 +187,8 @@ def main() -> None:
         "source": str(args.source.resolve()),
         "source_sha256": source_hash,
         "trial_box": args.trial_box,
+        "trial_review": str(args.trial_review.resolve()) if args.trial_review else None,
+        "trial_review_sha256": sha256(args.trial_review) if args.trial_review else None,
         "approval": str(args.approval.resolve()),
         "approval_sha256": sha256(args.approval),
         "output": str(args.output.resolve()),
