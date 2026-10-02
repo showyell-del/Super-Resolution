@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import tempfile
 from pathlib import Path
 
@@ -68,10 +69,14 @@ def main() -> None:
     parser.add_argument("manifest", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--scratch-dir", type=Path)
+    parser.add_argument("--output-scale", type=float, default=1,
+                        help="preserve generated tile detail on an enlarged semantic canvas")
     parser.add_argument("--min-correlation", type=float, default=0.60)
     parser.add_argument("--max-translation-ratio", type=float, default=0.03)
     parser.add_argument("--max-scale-error", type=float, default=0.04)
     args = parser.parse_args()
+    if not math.isfinite(args.output_scale) or args.output_scale < 1:
+        parser.error("Output scale must be finite and at least 1")
 
     scratch_root = args.scratch_dir or args.output.parent
     require_apple_silicon([args.manifest, args.output.parent, scratch_root])
@@ -87,7 +92,35 @@ def main() -> None:
         parser.error("Source image changed after tile preparation")
     source = Image.open(source_path)
     source_rgb = rgb_proxy(source)
-    width, height = data["width"], data["height"]
+    width, height = round(data["width"] * args.output_scale), round(data["height"] * args.output_scale)
+    if args.output_scale != 1:
+        scaled_tiles = []
+        for tile in data["tiles"]:
+            x, y = round(tile["x"] * args.output_scale), round(tile["y"] * args.output_scale)
+            right = round((tile["x"] + tile["width"]) * args.output_scale)
+            bottom = round((tile["y"] + tile["height"]) * args.output_scale)
+            scaled_tiles.append({**tile, "x": x, "y": y, "width": right - x, "height": bottom - y})
+        data["tiles"] = scaled_tiles
+    for tile in data["tiles"]:
+        if tile.get("structural_status") != "accepted":
+            parser.error(f"Tile {tile['name']} has no accepted structural pass")
+        if tile.get("semantic_status") != "accepted":
+            parser.error(f"Tile {tile['name']} has no accepted semantic pass")
+        path = base / tile["output"]
+        if not path.is_file():
+            parser.error(f"Missing edited tile: {path}")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != tile.get("output_sha256"):
+            parser.error(f"Tile {tile['name']} changed after it was recorded")
+        with Image.open(path) as generated:
+            if args.output_scale > 1 and (
+                tile["width"] > generated.width + 1 or tile["height"] > generated.height + 1
+            ):
+                parser.error(
+                    f"Tile {tile['name']} native size {generated.size} cannot support "
+                    f"semantic canvas tile {(tile['width'], tile['height'])}; generate denser detail first"
+                )
+    if args.output_scale != 1:
+        source_rgb = source_rgb.resize((width, height), Image.Resampling.LANCZOS)
     by_position = {(tile["row"], tile["col"]): tile for tile in data["tiles"]}
     reports = []
 
@@ -100,18 +133,11 @@ def main() -> None:
         weights[:] = 0
 
         for tile in data["tiles"]:
-            if tile.get("structural_status") != "accepted":
-                parser.error(f"Tile {tile['name']} has no accepted structural pass")
-            if tile.get("semantic_status") != "accepted":
-                parser.error(f"Tile {tile['name']} has no accepted semantic pass")
             path = base / tile["output"]
-            if not path.is_file():
-                parser.error(f"Missing edited tile: {path}")
-            if hashlib.sha256(path.read_bytes()).hexdigest() != tile.get("output_sha256"):
-                parser.error(f"Tile {tile['name']} changed after it was recorded")
-
             x, y, tw, th = tile["x"], tile["y"], tile["width"], tile["height"]
-            edited = Image.open(path).convert("RGB").resize((tw, th), Image.Resampling.LANCZOS)
+            with Image.open(path) as generated:
+                native_size = generated.size
+                edited = generated.convert("RGB").resize((tw, th), Image.Resampling.LANCZOS)
             edited_array = np.asarray(edited, dtype=np.uint8)
             reference_array = np.asarray(source_rgb.crop((x, y, x + tw, y + th)), dtype=np.uint8)
             try:
@@ -155,6 +181,9 @@ def main() -> None:
             weights[y:y + th, x:x + tw] += weight
             reports.append({
                 "tile": tile["name"],
+                "semantic_canvas_scale": args.output_scale,
+                "generated_native_size": list(native_size),
+                "canvas_tile_size": [tw, th],
                 "correlation": correlation,
                 "scale_error": scale_error,
                 "translation_ratio": translation_ratio,
@@ -173,6 +202,8 @@ def main() -> None:
             output_image = output_image.convert("L")
         if data.get("source_alpha"):
             alpha = Image.open(base / data["source_alpha"]).convert("L")
+            if args.output_scale != 1:
+                alpha = alpha.resize((width, height), Image.Resampling.LANCZOS)
             output_image.putalpha(alpha)
         icc_profile = (base / data["source_icc"]).read_bytes() if data.get("source_icc") else None
         args.output.parent.mkdir(parents=True, exist_ok=True)

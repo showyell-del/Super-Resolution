@@ -41,7 +41,7 @@ For a camera-real target with widespread missing detail but stable source geomet
 Do not use a previous VOSR2 output as the input to another VOSR2 pass. For 12K, approve a genuinely detailed source or reconstructed semantic master with a long edge of at least 3072 pixels before a single 4x neural pass; a 3K image created by an earlier 4x pass is not new source evidence.
 
 Use a crop trial when its answer can change an expensive plan: uncertain style conversion, high-risk people/materials, or an untested prompt. For a camera-photo target with acceptance-critical people or enlargement above 2x, the Real-ESRGAN full run requires a byte-bound passing `--trial-review`; source resolution and source semantic approval do not waive this gate. Run a contextual crop at the selected model's native 4x, then compare both native output pixels and intended viewing scale against the source/reference. Review eyes, mouth, skin, fabric, and adjacent focus together. Instructions and the review format are in [apple-runtime.md](references/apple-runtime.md). Skip trials for clean low-risk nonphotographic work.
-If the trial reveals painted skin, smeared construction, changed facial features, or material detail unrelated to the source, reject that source/route pairing before enlargement. A passing face-width or sharpness score cannot override it. Do not turn a failed production image into an open-ended model search or blend invented teeth/texture into the source to conceal the failure; candidate-model research is a separate measured experiment. A trial is diagnostic, not a deliverable.
+If the trial reveals painted skin, smeared construction, changed facial features, or material detail unrelated to the source, reject that source/route pairing before enlargement. A passing face-width or sharpness score cannot override it. When creative reconstruction is authorized, change the method explicitly: use an available image-edit generator to rebuild the recorded failures at sufficient native density, then register, review, and approve that new master or repair pack. Do not merely report the rejected trial as the task outcome, blend invented teeth into a claimed faithful restoration, or keep searching models without a production plan. A trial is diagnostic, not a deliverable.
 Keep the crop's backend verdict separate from its visual verdict: verified ANE placement and a completed output do not approve appearance. If appearance fails, stop before the full image. Attribute the failure to ANE only after a completed, same-input MPS control isolates a backend difference; otherwise record the cause as undetermined. The control is a diagnostic experiment, never a silent fallback or delivery substitute.
 
 For acceptance-critical photographic people, read [people-camera-realism.md](references/people-camera-realism.md). The semantic-stage face-width floors are fixed:
@@ -51,7 +51,7 @@ For acceptance-critical photographic people, read [people-camera-realism.md](ref
 - below 80 px: mandatory contextual group or individual repair;
 - below 48 px: creative reconstruction unless a sharper same-person reference exists.
 
-Never lower a threshold to pass a report. Never shrink an accepted high-density face repair back into the low-resolution master. Bind it to the master as a repair pack and composite it once onto the final enlarged canvas.
+Never lower a threshold to pass a report. Plan density at the requested final size, not just these working-stage floors. Never shrink an accepted high-density face or material repair back into the low-resolution master. Bind it to the master as a repair pack and composite it once onto the final enlarged canvas. For genuinely denser generated tiles, preserve their native detail with `stitch_tiles.py --output-scale`; see [sparse-region-repair.md](references/sparse-region-repair.md).
 
 ## 3. Reconstruct with layered prompts
 
@@ -87,6 +87,7 @@ python scripts/composite_regions.py repair/regions-manifest.json final.png \
 
 Then inspect the exact final image at 100%, comparing the same risk regions to the approved master and intended look. Run `build_contact_sheet.py --stage final` for critical photographic people. Fill [final-review.json](assets/final-review.json) with passes and concrete notes for the delivered bytes; `finalize_delivery.py --final-review` rejects missing, failed, or stale reviews. A valid runtime report cannot override a failed visual review. Keep only the evidence listed in [delivery-evidence.md](references/delivery-evidence.md).
 Keep any full-scale base or tile workspace as scratch, not a second deliverable. After the final gate and reports, retain one full-resolution image in the delivery directory and remove only the exact rebuildable intermediate. If the image fails, retract its approval rather than presenting a report marked pass.
+When both 12K and 6K are requested, derive 6K from the approved 12K final without another neural run. Review and hash-bind each resolution separately; keep one deliverable per requested resolution. Downsampling an approved semantic/neural final is not an interpolation-only enhancement.
 
 ## Cost and retry rules
 
@@ -94,10 +95,10 @@ Keep any full-scale base or tile workspace as scratch, not a second deliverable.
 - Reuse the source/target visual contract across regions; each prompt adds only the local defect and relevant constraints. Do not resend the full task history or multiple full-size previews for every crop.
 - Maximum one whole-image semantic generation and one full-image neural invocation per approved plan. A failed crop trial does not justify a whole-image run. A demonstrated runtime defect permits one narrowly corrected retry; record interrupted attempts and elapsed time.
 - Generate all planned local repairs before the selected neural run; composite them in one final operation.
-- A failed region invalidates only that region. Retry it once after correcting the diagnosed relationship; never rerun the whole image to fix a local defect.
-- If the retry still fails, stop and report the exact region and defect. Do not add quality adjectives, cascade new passes, or claim completion.
+- A failed region invalidates only that region. Correct the diagnosed relationship and regenerate only that region; keep the approved base and other repairs. Final material or seam failures do not require another full neural run.
+- Follow the user's iteration budget. When explicitly asked to continue until passing without a fixed repair count, keep iterating documented defects while a concrete change can improve them. Stop on an actual tool/resource failure or repeated unchanged defects with no viable authorized method; report the unresolved item, never claim completion. Do not repeat the same prompt with more quality adjectives or cascade neural passes.
 - Keep the defect map, trial, and review as compact as the actual risk allows; avoid variants that do not change a decision.
-- Record model time separately from end-to-end wall time. Do not extend a failed image's production path with documentation or repository publication; first report the failed visual gate and stop that render.
+- Record generation count, neural count, model time and end-to-end wall time separately. Finish the image before skill maintenance or publication; an accepted technical report is not an accepted picture.
 
 ## Acceptance
 

@@ -105,6 +105,38 @@ def visual_review() -> dict:
     }
 
 
+def check_semantic_canvas(workspace: Path, scripts: Path, source: Path) -> None:
+    """Numeric fixture only: preserve native tile density, rounding, and alpha."""
+    tiles = workspace / "tiles"
+    run(str(scripts / "prepare_tiles.py"), str(source), str(tiles),
+        "--cols", "3", "--rows", "2", "--overlap", "32")
+    manifest = tiles / "manifest.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    for tile in data["tiles"]:
+        output = tiles / tile["output"]
+        with Image.open(tiles / tile["input"]) as crop:
+            crop.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS).save(output)
+        tile.update(structural_status="accepted", semantic_status="accepted",
+                    output_sha256=hashlib.sha256(output.read_bytes()).hexdigest())
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    for scale in (1, 1.5, 2):
+        output = workspace / f"stitched-{scale}.png"
+        scale_arguments = [] if scale == 1 else ["--output-scale", str(scale)]
+        run(str(scripts / "stitch_tiles.py"), str(manifest), str(output), *scale_arguments)
+        with Image.open(output) as image, Image.open(source) as original:
+            assert image.size == (round(original.width * scale), round(original.height * scale))
+            assert np.array_equal(np.asarray(image.getchannel("A")), np.asarray(
+                original.getchannel("A").resize(image.size, Image.Resampling.LANCZOS)))
+        report = json.loads(output.with_suffix(".png.stitch-report.json").read_text())
+        assert len(report) == 6
+        assert all(item["semantic_canvas_scale"] == scale for item in report)
+    for scale in ("0", "nan", "3"):
+        output = workspace / f"invalid-stitch-{scale}.png"
+        run(str(scripts / "stitch_tiles.py"), str(manifest), str(output),
+            "--output-scale", scale, expect=2)
+        assert not output.exists()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("workspace", type=Path, help="empty test directory on the chosen work volume")
@@ -122,6 +154,11 @@ def main() -> None:
     array[..., 2] = (xx * 7 + yy * 2) % 256
     source = args.workspace / "source.png"
     Image.fromarray(array).save(source)
+    rgba = args.workspace / "tile-alpha-fixture.png"
+    alpha_image = Image.fromarray(array).convert("RGBA")
+    alpha_image.putalpha(Image.fromarray((220 + xx % 36).astype(np.uint8)))
+    alpha_image.save(rgba)
+    check_semantic_canvas(args.workspace, scripts, rgba)
 
     normalized = args.workspace / "normalized.png"
     run(str(scripts / "normalize_canvas.py"), str(source), str(normalized), "--target-width", "16", "--target-height", "9")
