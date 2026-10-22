@@ -1,14 +1,48 @@
 #!/usr/bin/env python3
-"""Atomically record an accepted structural or semantic tile stage."""
+"""Serialize accepted tile stages without losing concurrent manifest updates."""
 
 import argparse
-import hashlib
-import json
+import math
 from pathlib import Path
+
 from PIL import Image
+from pipeline_contract import locked_manifest, local_file, sha256, immutable_artifact
 
 
-def main() -> None:
+def record(data, args):
+    if sha256(Path(data["source"])) != data["source_sha256"]:
+        raise ValueError("Source changed after preparation")
+    matches = [tile for tile in data["tiles"] if tile["name"] == args.tile]
+    if len(matches) != 1:
+        raise ValueError("Unknown or duplicate tile")
+    tile = matches[0]
+    with Image.open(args.output) as image:
+        width, height = image.size
+    error = abs((width / height) / (tile["width"] / tile["height"]) - 1)
+    if error > args.max_aspect_error or width < tile["width"] or height < tile["height"]:
+        raise ValueError("Tile aspect or native density is insufficient")
+    if args.stage == "semantic" and tile.get("structural_status") != "accepted":
+        raise ValueError("Semantic tile requires an accepted structural stage")
+    key = "structure_output" if args.stage == "structure" else "output"
+    destination = local_file(args.manifest.parent, tile[key])
+    if destination.resolve() == Path(data["source"]).resolve():
+        raise ValueError("Tile cannot overwrite source")
+    prompt = args.prompt_file.read_text()
+    destination = immutable_artifact(args.manifest.parent, f"{tile['name']}-{args.stage}", args.output)
+    tile[key] = destination.name
+    if args.stage == "structure":
+        tile.update(structural_status="accepted", structure_prompt=prompt,
+                    structure_review_note=args.review_note.strip(), structure_output_sha256=sha256(destination),
+                    structure_output_size=[width, height], structure_aspect_error=error,
+                    semantic_status="pending", semantic_prompt=None, semantic_review_note=None, output_sha256=None)
+    else:
+        tile.update(semantic_status="accepted", semantic_prompt=prompt,
+                    semantic_review_note=args.review_note.strip(), output_sha256=sha256(destination),
+                    output_size=[width, height], aspect_error=error)
+    return destination
+
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
     parser.add_argument("tile")
@@ -18,59 +52,15 @@ def main() -> None:
     parser.add_argument("--review-note", required=True)
     parser.add_argument("--max-aspect-error", type=float, default=0.002)
     args = parser.parse_args()
-
-    data = json.loads(args.manifest.read_text(encoding="utf-8"))
-    matches = [tile for tile in data["tiles"] if tile["name"] == args.tile]
-    if len(matches) != 1:
-        parser.error(f"Unknown or duplicate tile name: {args.tile}")
-    if not args.output.is_file():
-        parser.error(f"Missing output tile: {args.output}")
-    if not args.prompt_file.is_file():
-        parser.error(f"Missing prompt file: {args.prompt_file}")
-    if not args.review_note.strip():
-        parser.error("A native-pixel review note is required")
-
-    tile = matches[0]
-    with Image.open(args.output) as image:
-        output_width, output_height = image.size
-    expected_aspect = tile["width"] / tile["height"]
-    output_aspect = output_width / output_height
-    relative_error = abs(output_aspect / expected_aspect - 1.0)
-    if relative_error > args.max_aspect_error:
-        parser.error(
-            f"Tile aspect ratio changed by {relative_error:.4%}; regenerate instead of distorting it"
-        )
-
-    if args.stage == "semantic" and tile.get("structural_status") != "accepted":
-        parser.error(f"Tile {args.tile} has no accepted structural pass")
-    destination_key = "structure_output" if args.stage == "structure" else "output"
-    destination = args.manifest.parent / tile[destination_key]
-    if args.output.resolve() != destination.resolve():
-        destination.write_bytes(args.output.read_bytes())
-    prompt = args.prompt_file.read_text(encoding="utf-8")
-    output_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
-    if args.stage == "structure":
-        tile["structural_status"] = "accepted"
-        tile["structure_prompt"] = prompt
-        tile["structure_review_note"] = args.review_note.strip()
-        tile["structure_output_sha256"] = output_hash
-        tile["structure_output_size"] = [output_width, output_height]
-        tile["structure_aspect_error"] = relative_error
-        tile["semantic_status"] = "pending"
-        tile["semantic_prompt"] = None
-        tile["semantic_review_note"] = None
-        tile["output_sha256"] = None
-    else:
-        tile["semantic_status"] = "accepted"
-        tile["semantic_prompt"] = prompt
-        tile["semantic_review_note"] = args.review_note.strip()
-        tile["output_sha256"] = output_hash
-        tile["output_size"] = [output_width, output_height]
-        tile["aspect_error"] = relative_error
-
-    temporary = args.manifest.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(args.manifest)
+    if not math.isfinite(args.max_aspect_error) or not 0 <= args.max_aspect_error <= 0.002:
+        parser.error("Invalid aspect tolerance")
+    if not args.review_note.strip() or not args.prompt_file.read_text().strip():
+        parser.error("Prompt and native-pixel review note are required")
+    try:
+        with locked_manifest(args.manifest) as data:
+            destination = record(data, args)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        parser.error(str(error))
     print(destination)
 
 

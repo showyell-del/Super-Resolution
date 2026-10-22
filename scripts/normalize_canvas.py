@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import math
 from pathlib import Path
 
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import new_output, atomic_json
 
 
 def sha256(path: Path) -> str:
@@ -30,6 +30,12 @@ def main() -> None:
     parser.add_argument("--target-height", type=int, required=True)
     parser.add_argument("--max-crop-ratio", type=float, default=0.05)
     args = parser.parse_args()
+    report_path = args.output.with_suffix(args.output.suffix + ".canvas-report.json")
+    try:
+        new_output(args.output)
+        new_output(report_path)
+    except FileExistsError as error:
+        parser.error(str(error))
 
     require_apple_silicon([args.source, args.output.parent])
     if args.target_width < 1 or args.target_height < 1:
@@ -74,8 +80,7 @@ def main() -> None:
         "removed_area_ratio": removed_ratio,
         "resampled": False,
     }
-    report_path = args.output.with_suffix(args.output.suffix + ".canvas-report.json")
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(report_path, report)
     print(args.output)
     print(report_path)
 

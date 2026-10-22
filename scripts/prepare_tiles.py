@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import new_task_directory
 
 
 def positions(length: int, count: int, overlap: int) -> tuple[list[int], int]:
@@ -26,13 +27,14 @@ def main() -> None:
     parser.add_argument("--cols", type=int, default=4)
     parser.add_argument("--rows", type=int, default=4)
     parser.add_argument("--overlap", type=int, default=192)
+    parser.add_argument("--context-reviewed", action="store_true",
+                        help="confirm generator size, adequate join context and critical-subject seam placement")
     args = parser.parse_args()
 
     if args.cols < 1 or args.rows < 1 or args.overlap < 1:
         parser.error("rows/cols and overlap must be positive")
 
     require_apple_silicon([args.image, args.output_dir.parent])
-    args.output_dir.mkdir(parents=True, exist_ok=True)
     source = Image.open(args.image)
     if source.mode not in {"RGB", "RGBA", "L", "LA"}:
         parser.error(
@@ -40,6 +42,19 @@ def main() -> None:
             "workflow instead of silently discarding high bit depth or indexed color"
         )
     original_mode = source.mode
+    width, height = source.size
+    xs, tile_width = positions(width, args.cols, args.overlap)
+    ys, tile_height = positions(height, args.rows, args.overlap)
+    actual_overlaps = [start + tile - next_start for starts, tile in ((xs, tile_width), (ys, tile_height))
+                       for start, next_start in zip(starts, starts[1:])]
+    if actual_overlaps and min(actual_overlaps) <= 2:
+        parser.error("Semantic tile joins need more than 1–2 pixels of context")
+    if actual_overlaps and not args.context_reviewed:
+        parser.error("Review generator size, join context and subject crossings, then use --context-reviewed")
+    try:
+        new_task_directory(args.output_dir)
+    except FileExistsError as error:
+        parser.error(str(error))
     alpha_name = None
     if "A" in original_mode:
         alpha_name = "source_alpha.png"
@@ -58,8 +73,6 @@ def main() -> None:
     else:
         image = source.convert("RGB")
     width, height = image.size
-    xs, tile_width = positions(width, args.cols, args.overlap)
-    ys, tile_height = positions(height, args.rows, args.overlap)
     tiles = []
 
     for row, y in enumerate(ys, 1):
@@ -100,6 +113,7 @@ def main() -> None:
         "height": height,
         "rows": len(ys),
         "cols": len(xs),
+        "planning": {"actual_overlaps": actual_overlaps, "context_reviewed": args.context_reviewed},
         "tiles": tiles,
     }
     path = args.output_dir / "manifest.json"

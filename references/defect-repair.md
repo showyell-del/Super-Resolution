@@ -18,4 +18,4 @@ Prompt:
 
 > Conservatively repair only [named defect]. Preserve all locked invariants. Reconstruct valid topology from supported endpoints and neighboring context. Keep line ownership, projection, repetition, attachment, occlusion, and depth coherent. Do not add microtexture or redesign content. No melting, duplication, arbitrary forks, floating fragments, impossible tangencies, or sharpened invalid geometry.
 
-After structure passes, material detail may be added in the same region. A failed retry stops that region; it does not restart the image.
+After structure passes, material detail may be added in the same region. Retry only recorded failures while a concrete authorized method can improve them. Stop on an actual tool/resource error or repeated unchanged defects with no viable method, not a fixed retry count. Keep other accepted regions and the approved base.

@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import local_file, new_task_directory, atomic_json, box
 
 
 def file_hash(path: Path) -> str:
@@ -34,14 +35,24 @@ def main() -> None:
     regions = json.loads(args.regions.read_text(encoding="utf-8"))
     if not isinstance(regions, list) or not regions:
         parser.error("Regions file must contain a non-empty JSON list")
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        names = set()
+        for region in regions:
+            local_file(args.output_dir, region["name"])
+            if region["name"] in names:
+                raise ValueError("Review region names must be unique")
+            names.add(region["name"])
+            box([region[key] for key in ("x", "y", "width", "height")], image.size)
+        new_task_directory(args.output_dir)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        parser.error(str(error))
     crops = []
     for region in regions:
         name = region["name"]
         x, y, width, height = (int(region[key]) for key in ("x", "y", "width", "height"))
         if width < 1 or height < 1 or x < 0 or y < 0 or x + width > image.width or y + height > image.height:
             parser.error(f"Invalid crop region {name!r}")
-        path = args.output_dir / f"{name}.png"
+        path = local_file(args.output_dir, f"{name}.png")
         image.crop((x, y, x + width, y + height)).save(path, compress_level=2)
         crops.append({"name": name, "box": [x, y, width, height], "path": str(path)})
     report = {
@@ -55,7 +66,7 @@ def main() -> None:
         "crops": crops,
     }
     report_path = args.output_dir / "verification.json"
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(report_path, report)
     print(report_path)
 
 

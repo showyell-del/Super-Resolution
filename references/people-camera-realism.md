@@ -11,7 +11,7 @@ Measure face width in the semantic master.
 - **48–79 px:** mandatory contextual group or individual repair.
 - **Below 48 px:** creative reconstruction unless a sharper same-person reference exists.
 
-Thresholds are fixed. Do not pass a report by lowering them.
+Thresholds are fixed semantic working floors. They are not a guarantee of final skin, eyelash or textile detail. Photographic targets stop at 6K. Calculate projected native density at that target and review focal detail and optical softness. Do not pass a report by lowering them.
 
 Create all required repairs as one plan before the selected neural run. Group adjacent people only when every face reaches working density and enough body and scene context remains. Otherwise use individual regions. Keep accepted repair outputs at high density and composite them once onto the enlarged canvas; never shrink them into the semantic master.
 

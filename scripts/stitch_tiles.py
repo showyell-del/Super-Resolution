@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import new_output, local_file
 
 
 def smoothstep(values: np.ndarray) -> np.ndarray:
@@ -75,6 +76,8 @@ def main() -> None:
     parser.add_argument("--max-translation-ratio", type=float, default=0.03)
     parser.add_argument("--max-scale-error", type=float, default=0.04)
     args = parser.parse_args()
+    new_output(args.output)
+    new_output(args.output.with_suffix(args.output.suffix + ".stitch-report.json"))
     if not math.isfinite(args.output_scale) or args.output_scale < 1:
         parser.error("Output scale must be finite and at least 1")
 
@@ -106,7 +109,7 @@ def main() -> None:
             parser.error(f"Tile {tile['name']} has no accepted structural pass")
         if tile.get("semantic_status") != "accepted":
             parser.error(f"Tile {tile['name']} has no accepted semantic pass")
-        path = base / tile["output"]
+        path = local_file(base, tile["output"])
         if not path.is_file():
             parser.error(f"Missing edited tile: {path}")
         if hashlib.sha256(path.read_bytes()).hexdigest() != tile.get("output_sha256"):
@@ -133,7 +136,7 @@ def main() -> None:
         weights[:] = 0
 
         for tile in data["tiles"]:
-            path = base / tile["output"]
+            path = local_file(base, tile["output"])
             x, y, tw, th = tile["x"], tile["y"], tile["width"], tile["height"]
             with Image.open(path) as generated:
                 native_size = generated.size
@@ -201,11 +204,11 @@ def main() -> None:
         if data["source_mode"] in {"L", "LA"}:
             output_image = output_image.convert("L")
         if data.get("source_alpha"):
-            alpha = Image.open(base / data["source_alpha"]).convert("L")
+            alpha = Image.open(local_file(base, data["source_alpha"])).convert("L")
             if args.output_scale != 1:
                 alpha = alpha.resize((width, height), Image.Resampling.LANCZOS)
             output_image.putalpha(alpha)
-        icc_profile = (base / data["source_icc"]).read_bytes() if data.get("source_icc") else None
+        icc_profile = local_file(base, data["source_icc"]).read_bytes() if data.get("source_icc") else None
         args.output.parent.mkdir(parents=True, exist_ok=True)
         save_args = {"compress_level": 2}
         if icc_profile:

@@ -1,7 +1,7 @@
-# VOSR2 photographic reconstruction on Apple MPS
+# VOSR2 MPS diagnostic control
 
-Use this route only when the visual contract permits **creative** photographic detail reconstruction. It is not identity recovery, exact text restoration, or a substitute for source-supported geometry. The verified scale is 4x. Route selection is made before inference; this is not a fallback after another backend fails.
-Do not use a previous VOSR2 result as the source for another 4x pass. For 12K, first approve an independently detailed semantic master at least 3072 pixels on the long edge; more pixels from a prior pass are not new visual evidence.
+Use this control only when the visual contract permits **creative** photographic detail reconstruction. The patched upstream runner lacks the source/trial/report enforcement used by current delivery entrypoints, so it is diagnostic only; do not invent runtime reports to make it pass finalization. It is not identity recovery, exact text restoration, or a substitute for source-supported geometry. The verified scale is 4x. Route selection is made before inference; this is not a fallback after another backend fails.
+Do not use a previous VOSR2 result as the source for another 4x pass. Only for nonphotographic 12K, first approve an independently detailed semantic master at least 3072 pixels on the long edge; more pixels from a prior pass are not new visual evidence.
 
 ## Tested configuration
 
@@ -22,11 +22,11 @@ The VOSR patch forces MPS, disables CUDA/CPU selection and `torch.compile` on th
 
 Create the Python environment on the work volume. The tested environment used Python 3.9, torch 2.8.0, torchvision 0.23.0, Pillow, NumPy, safetensors, huggingface_hub 0.36.2, plus the three pinned packages above. Confirm imports and MPS availability before model loading. The first model download is several gigabytes and is a one-time cost; keep Hugging Face cache on the work volume.
 
-## Run only after the crop gate
+## Run an explicit diagnostic
 
 Inspect one native-pixel crop that includes a salient face **and** the troublesome background or material. This test used a 512×512 source crop and checked its 2048×2048 result against the source and earlier rejected output. Reject a crop with painted skin, smeared construction, invented hard edges, or a discontinuous focus plane. A passing sharpness score is insufficient.
 
-For the approved full image, from inside the patched VOSR checkout run:
+For an explicit same-input MPS/ANE comparison, crop the original source identically, keep the same seed and alignment, and run inside the patched VOSR checkout:
 
 ```bash
 PYTHONUNBUFFERED=1 PYTORCH_ENABLE_MPS_FALLBACK=0 \
@@ -40,8 +40,10 @@ python inference_vosr_onestep.py \
   --vae_tile_size 1024 --vae_tile_overlap 128
 ```
 
-The output is saved under the input basename directly in the output directory. Keep exactly one full-resolution candidate there. At 100% native pixels inspect all critical faces, visible hands, wardrobe construction, glass and other repeated lines, foliage, focus falloff, and tile boundaries. Run `build_contact_sheet.py --stage final` for critical people, then complete `final-review.json` and `finalize_delivery.py` only if the candidate passes. The contact sheet's blur and duplicate metrics are prechecks, not an appearance verdict.
+The output is saved under the input basename directly in the output directory. Keep exactly one full-resolution candidate there. At 100% native pixels inspect all critical faces, visible hands, wardrobe construction, glass and other repeated lines, foliage, focus falloff, and tile boundaries. Record the result as diagnostic evidence, with source/output hashes, settings and native-pixel differences. Do not use `finalize_delivery.py` to approve this ungated runner. Current VOSR2 delivery uses the [ANE hybrid](vosr2-ane.md). The contact sheet's blur and duplicate metrics are prechecks, not an appearance verdict.
 
 ## Evidence from this test
 
 The VOSR 0.5B one-step 6K candidate was rejected for coarse skin and glass artifacts. VOSR2's completed 6K candidate passed this test's three-face, material, geometry, and depth checks. This is one synthetic-scene test, not a universal model-quality claim. Keep future failures specific to their image and stage; do not turn a single artifact into a global prompt rule.
+
+Photographic targets support at most 6K, including diagnostic controls. Do not use this upstream diagnostic command to bypass the public executor’s style limit. See [resolution routing](resolution-routing.md).

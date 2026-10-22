@@ -5,7 +5,15 @@ description: Diagnose image style and missing detail, reconstruct only what the 
 
 # Super-Resolution
 
-Decide the intended visual language before writing a prompt. Source semantics, backend execution, image quality, and final delivery are separate verdicts. Real-ESRGAN enlarges an approved master; VOSR2 may creatively reconstruct missing photographic detail after a passing target-scale crop trial. For VOSR2, prefer the tested ANE hybrid when its pinned packages and target-device compute plan are verified; never switch routes silently after a failure.
+Decide the intended visual language before writing a prompt. Source semantics, backend execution, image quality, and final delivery are separate verdicts. For a requested nonphotographic 12K-detail result, read [12k-quality.md](references/12k-quality.md) before routing or approving any trial. File dimensions and valid anatomy do not establish sufficient effective detail. Real-ESRGAN enlarges an approved master; VOSR2 may creatively reconstruct missing photographic detail after a passing target-scale crop trial. For VOSR2 delivery, use the tested ANE hybrid with pinned conversion evidence and a same-device package plan. MPS-only VOSR2 is a diagnostic control, not a delivery entrypoint. Never switch routes silently after a failure.
+
+## Resolution routing
+
+Follow [resolution-routing.md](references/resolution-routing.md). Use the approved `target_look`: photography, including generated photographic style, supports a long edge of at most 6144 pixels; render, illustration, graphic and nonphotographic mixed targets support at most 12288. Mixed scenes with photographic subjects follow the photographic route. Choose the category from actual visible style; never relabel photographic pixels to gain 12K. Oversized requests must be rejected, not silently resized.
+
+## User-selected quality target
+
+When the user explicitly prefers balanced creative enhancement over extreme photographic fidelity, follow [creative-balanced.md](references/creative-balanced.md). Preserve dimensions, facial structure, expression, protected content and depth continuity; assess coherent visual detail without requiring authentic microtexture or individually resolved fibers. Keep previous strict photographic failures and write a separate, byte-bound review for the changed goal. This is an explicit target choice, never an automatic downgrade. Photographic targets are limited to 6K; apply [12k-quality.md](references/12k-quality.md) only to nonphotographic 12K targets.
 
 ## Hard gate
 
@@ -37,8 +45,8 @@ Before any generation, compare viable plans by expected image-edit calls, total 
 - **Global lane:** defects or style conversion affect most of the composition, or many local edits would repeat the same context; at most one whole-image edit, then only indispensable high-density repairs.
 - **Evidence-preserving lane:** when exact identity or detail is required but no supporting pixels or references exist, report that limit; do not invent a claimed restoration.
 
-For a camera-real target with widespread missing detail but stable source geometry, use VOSR2 only after a representative 4x face-and-material crop passes at native pixels. Select the [MPS–ANE hybrid](references/vosr2-ane.md) when its requirements are met; the [MPS-only route](references/vosr2-apple.md) remains a separate deliberate choice. This is creative reconstruction, not identity restoration. Do not run VOSR2 on exact logos, text, or identities and do not apply Real-ESRGAN after it. The earlier VOSR 0.5B test failed its photographic quality gate and is not a delivery route.
-Do not use a previous VOSR2 output as the input to another VOSR2 pass. For 12K, approve a genuinely detailed source or reconstructed semantic master with a long edge of at least 3072 pixels before a single 4x neural pass; a 3K image created by an earlier 4x pass is not new source evidence.
+For a camera-real target with widespread missing detail but stable source geometry, use VOSR2 only after a representative 4x face-and-material crop passes at native pixels. Use the [MPS–ANE hybrid](references/vosr2-ane.md) when its requirements are met. This is creative reconstruction, not identity restoration. Do not run VOSR2 on exact logos, text, or identities and do not apply Real-ESRGAN after it. The earlier VOSR 0.5B test failed its photographic quality gate and is not a delivery route.
+Do not use a previous VOSR2 output as the input to another VOSR2 pass. For photographic 6K VOSR2, use an independently approved master with a 1536-pixel long edge for one exact 4x pass. Nonphotographic 12K needs a 3072-pixel long edge. Normalize from the original source explicitly, inspect and approve the new master; never generate 12K photography and shrink it to claim a 6K workflow. Source floors are execution/provenance requirements, not detail guarantees. Inspect native information and calculate every critical repair crop at its final projected scale.
 
 Use a crop trial when its answer can change an expensive plan: uncertain style conversion, high-risk people/materials, or an untested prompt. For a camera-photo target with acceptance-critical people or enlargement above 2x, the Real-ESRGAN full run requires a byte-bound passing `--trial-review`; source resolution and source semantic approval do not waive this gate. Run a contextual crop at the selected model's native 4x, then compare both native output pixels and intended viewing scale against the source/reference. Review eyes, mouth, skin, fabric, and adjacent focus together. Instructions and the review format are in [apple-runtime.md](references/apple-runtime.md). Skip trials for clean low-risk nonphotographic work.
 If the trial reveals painted skin, smeared construction, changed facial features, or material detail unrelated to the source, reject that source/route pairing before enlargement. A passing face-width or sharpness score cannot override it. When creative reconstruction is authorized, change the method explicitly: use an available image-edit generator to rebuild the recorded failures at sufficient native density, then register, review, and approve that new master or repair pack. Do not merely report the rejected trial as the task outcome, blend invented teeth into a claimed faithful restoration, or keep searching models without a production plan. A trial is diagnostic, not a deliverable.
@@ -71,23 +79,24 @@ Create one native-pixel review using [native-review.json](assets/native-review.j
 - for people: explicit passes for eyes/gaze, mouth/teeth, skin texture, identity/distinctness, hair/hands/anatomy, and wardrobe/material integration;
 - one status, delivery strategy, and concrete note for every subject.
 
-`approve_semantic_master.py` rejects missing manual checks. A subject that fails density, blur, or duplicate precheck must use an accepted `final_registered_repair` in `--repair-manifest`.
+Set `image_sha256` to the inspected master bytes before approval. `approve_semantic_master.py` creates version 4 approvals and rejects stale, missing or failed checks. A subject below 80px or failing precheck requires `final_registered_repair`. Its target must cover the original face and mapped repaired face. The 120px face floor is a semantic working threshold, not a final-detail threshold. Recording requires `--subject-report` from the generated crop at `--stage repair`, with every face at least 120px. Native repair dimensions must support the final projected crop without another enlargement. Reuse existing manifests; never rerun preparation over accepted work.
 For local repairs, the crop outside `target_box` is context for generation and registration, not permission to replace it. Compare target and neighboring background at the same scale and focus; high registration correlation does not establish depth-of-field or texture continuity.
 
 Block enlargement on malformed anatomy, smeared or repeated texture, material detail unrelated to form, pseudo-text, broken perspective, lost intentional blur, unsupported style conversion, or unregistered repairs. For photographic people, also block empty eyes, black mouth cavities, wax skin, and cloned faces. Sharpness never overrides a semantic failure.
 
 ## 5. Enlarge and finish once
 
-Run the selected route once: `apple_mps_upscale.py` for an approved Real-ESRGAN master, or the pinned VOSR2 command in [vosr2-ane.md](references/vosr2-ane.md) or [vosr2-apple.md](references/vosr2-apple.md) after its photographic crop gate. VOSR2 is verified only at 4x; never label a resized intermediate as equivalent. If a repair pack exists on the Real-ESRGAN route, apply it once with:
+Run the selected route once: `apple_mps_upscale.py` for an approved Real-ESRGAN master, or the pinned VOSR2 command in [vosr2-ane.md](references/vosr2-ane.md) after its photographic crop gate. VOSR2 is verified only at 4x; never label a resized intermediate as equivalent. If an accepted native-density repair pack exists for the selected neural route, apply it once with its verified base and approval:
 
 ```bash
 python scripts/composite_regions.py repair/regions-manifest.json final.png \
-  --base mps-output.png --approval semantic-master.png.approval.json
+  --base mps-output.png --base-report mps-output.png.mps-report.json \
+  --approval semantic-master.png.approval.json
 ```
 
-Then inspect the exact final image at 100%, comparing the same risk regions to the approved master and intended look. Run `build_contact_sheet.py --stage final` for critical photographic people. Fill [final-review.json](assets/final-review.json) with passes and concrete notes for the delivered bytes; `finalize_delivery.py --final-review` rejects missing, failed, or stale reviews. A valid runtime report cannot override a failed visual review. Keep only the evidence listed in [delivery-evidence.md](references/delivery-evidence.md).
+Then inspect the exact final image at 100%, comparing the same risk regions to the approved master and intended look. Run `build_contact_sheet.py --stage final` for critical photographic people. Fill [final-review.json](assets/final-review.json) with actual passes and concrete notes. Finalization requires `--approval`, `--final-review`, ordered `--operation-report` files (neural first, then composite/export), and `--subject-report` for critical people. Every approved ID must appear, have at least 120px face width, and lie within an inspected final region. Failed/stale reviews, omitted repairs, broken hash chains and changed mode/ICC reject delivery. A valid runtime report cannot override a failed visual review. Keep only the evidence listed in [delivery-evidence.md](references/delivery-evidence.md).
 Keep any full-scale base or tile workspace as scratch, not a second deliverable. After the final gate and reports, retain one full-resolution image in the delivery directory and remove only the exact rebuildable intermediate. If the image fails, retract its approval rather than presenting a report marked pass.
-When both 12K and 6K are requested, derive 6K from the approved 12K final without another neural run. Review and hash-bind each resolution separately; keep one deliverable per requested resolution. Downsampling an approved semantic/neural final is not an interpolation-only enhancement.
+For nonphotographic targets, when both 12K and 6K are requested, use `downsample_delivery.py` on the version 2 approved 12K delivery and append its report to the original execution chain. Review and hash-bind each resolution separately in a separate delivery directory containing exactly one image. Downsampling an approved semantic/neural final is not an interpolation-only enhancement.
 
 ## Cost and retry rules
 
@@ -98,7 +107,7 @@ When both 12K and 6K are requested, derive 6K from the approved 12K final withou
 - A failed region invalidates only that region. Correct the diagnosed relationship and regenerate only that region; keep the approved base and other repairs. Final material or seam failures do not require another full neural run.
 - Follow the user's iteration budget. When explicitly asked to continue until passing without a fixed repair count, keep iterating documented defects while a concrete change can improve them. Stop on an actual tool/resource failure or repeated unchanged defects with no viable authorized method; report the unresolved item, never claim completion. Do not repeat the same prompt with more quality adjectives or cascade neural passes.
 - Keep the defect map, trial, and review as compact as the actual risk allows; avoid variants that do not change a decision.
-- Record generation count, neural count, model time and end-to-end wall time separately. Finish the image before skill maintenance or publication; an accepted technical report is not an accepted picture.
+- Use the small [job ledger](references/job-ledger.md) before the first generation or trial and log every actual attempt. Reuse accepted outputs by hash; separate call counts, model time and wall time. Missing token measurements remain unknown. Finish the image before skill maintenance or publication; an accepted technical report is not an accepted picture.
 
 ## Acceptance
 

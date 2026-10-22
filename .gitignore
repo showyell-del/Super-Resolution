@@ -10,3 +10,4 @@ __pycache__/
 verification/
 workspace/
 outputs/
+.audit/

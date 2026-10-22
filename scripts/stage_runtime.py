@@ -5,14 +5,29 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import shutil
+import tempfile
 from pathlib import Path
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import atomic_json
 
 
 EXPECTED_WEIGHTS_SHA256 = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+
+
+def copy_verified(source: Path, destination: Path, expected: str) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(prefix=destination.name + ".", suffix=".tmp", dir=destination.parent,
+                                     delete=False) as stream:
+        temporary = Path(stream.name)
+    try:
+        shutil.copyfile(source, temporary)
+        if sha256(temporary) != expected:
+            raise ValueError("Copied model hash mismatch")
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def sha256(path: Path) -> str:
@@ -45,13 +60,7 @@ def main() -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     reused = destination.is_file() and sha256(destination) == EXPECTED_WEIGHTS_SHA256
     if not reused:
-        temporary = destination.with_suffix(".pth.tmp")
-        shutil.copyfile(args.source_weights, temporary)
-        copied_hash = sha256(temporary)
-        if copied_hash != EXPECTED_WEIGHTS_SHA256:
-            temporary.unlink(missing_ok=True)
-            parser.error(f"Copied model hash mismatch: {copied_hash}")
-        temporary.replace(destination)
+        copy_verified(args.source_weights, destination, EXPECTED_WEIGHTS_SHA256)
 
     report = {
         "runtime": str(args.destination.resolve()),
@@ -60,7 +69,7 @@ def main() -> None:
         "reused_verified_weights": reused,
     }
     report_path = args.destination / "runtime-stage-report.json"
-    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    atomic_json(report_path, report)
     print(args.destination)
     print(report_path)
 

@@ -1,6 +1,6 @@
 # Apple Silicon MPS runtime contract
 
-This workflow has Real-ESRGAN on PyTorch MPS and two purpose-specific VOSR2 routes after a passing 4x photographic crop trial: [MPS-only](vosr2-apple.md) and [MPS–ANE hybrid](vosr2-ane.md). Core ML Tools is required only to prepare and run the ANE hybrid. Choose the route before inference; there is no CPU-only, CUDA, or lower-resolution fallback.
+Delivery uses Real-ESRGAN on PyTorch MPS or the [MPS–ANE hybrid](vosr2-ane.md) after a passing 4x photographic crop trial. [MPS-only VOSR2](vosr2-apple.md) is a separate diagnostic control, not a current hash-gated delivery entrypoint. Core ML Tools is required only to prepare and run the ANE hybrid. Choose the route before inference; there is no CPU-only, CUDA, or lower-resolution fallback.
 
 ## Mandatory preflight
 
@@ -39,7 +39,7 @@ For the Real-ESRGAN route, if the bundled weight is on a low-space volume, stage
 python scripts/stage_runtime.py /safe/volume/super-resolution-runtime
 ```
 
-Run staging only when the selected runtime needs it. A valid existing staged weight is hash-checked and reused without another copy. Pass that directory to `apple_mps_upscale.py --runtime`. The stage report and model hash are delivery evidence.
+Run staging only when the selected runtime needs it. A valid existing staged weight is hash-checked and reused without another copy. Pass that directory to `apple_mps_upscale.py --runtime`. The stage report and model hash are delivery evidence. Staging uses verified unique temporary copies and removes partial files on failure.
 
 ## Verified Real-ESRGAN MPS executor
 
@@ -48,12 +48,12 @@ Use `scripts/apple_mps_upscale.py`. Its minimal Python runtime contains only the
 - Set `PYTORCH_ENABLE_MPS_FALLBACK=0` before importing PyTorch.
 - Require `torch.device("mps")`; abort if MPS is unavailable.
 - Use the x4 RRDBNet model with tiled inference. The validated baseline is tile size 256, tile padding 24, no half precision, and no pre-padding.
-- The x4 model performs neural reconstruction first. When the requested delivery scale is between native model scales, Real-ESRGAN may downsample the x4 neural result to the exact target, matching the validated workflow used for the prior 12K delivery.
-- `apple_mps_upscale.py --preset 6k|12k` uses a 6144- or 12288-pixel long edge and rounds only the short edge to an integer pixel. It rejects a requested scale above the model's native 4×. The tiled executor copies each completed tile to an 8-bit output canvas instead of holding a full float32 output on MPS; a non-4× result uses a work-volume temporary native canvas that is removed after resampling. Small 4× and 2× parity fixtures were byte-identical to the earlier full-canvas implementation.
+- The x4 model performs neural reconstruction first. When the requested delivery scale is between native model scales, Real-ESRGAN may downsample the x4 neural result to the exact target, subject to the approved target style limit.
+- `apple_mps_upscale.py --preset 6k|12k` uses a 6144-pixel photographic ceiling or a 12288-pixel nonphotographic ceiling and rounds only the short edge to an integer pixel. It rejects a requested scale above the model's native 4×. The tiled executor copies each completed tile to an 8-bit output canvas instead of holding a full float32 output on MPS; a non-4× result uses a work-volume temporary native canvas that is removed after resampling. Small 4× and 2× parity fixtures were byte-identical to the earlier full-canvas implementation.
 - For explicit dimensions, require the source aspect ratio exactly. Presets preserve it to the nearest integer output pixel; record both final dimensions.
 - Record model hash, runtime, PyTorch version, MPS device, disabled fallback state, tile settings, source hash, output hash, dimensions, and elapsed time.
 
-For VOSR2, use the pinned runtime patch and choose one exact 4x route: [MPS-only](vosr2-apple.md) or [MPS–ANE hybrid](vosr2-ane.md). The MPS-only run released the temporary checkpoint after loading and released DiT/DINOv2 from MPS before Qwen VAE decode; omitting those lifecycle steps caused severe swapping and unusable runtime. The hybrid uses separate Core ML packages for DiT and decode. A passing crop never substitutes for a full-resolution native-pixel review.
+For VOSR2 delivery, use the pinned [MPS–ANE hybrid](vosr2-ane.md) at exact 4x. The MPS-only control is described separately. The MPS-only run released the temporary checkpoint after loading and released DiT/DINOv2 from MPS before Qwen VAE decode; omitting those lifecycle steps caused severe swapping and unusable runtime. The hybrid uses separate Core ML packages for DiT and decode. A passing crop never substitutes for a full-resolution native-pixel review.
 
 ## Photographic crop gate
 
@@ -86,12 +86,12 @@ Choose coordinates for the actual source; the example is not an automatic region
 The people checks are mandatory only when people are acceptance-critical. Set a check to `pass` only after visual inspection. If any required item fails, stop this render. After a genuine pass:
 
 ```bash
-python scripts/apple_mps_upscale.py approved.png result-12k.png \
-  --preset 12k --approval approved.png.approval.json --runtime "$SR_WORK" \
+python scripts/apple_mps_upscale.py approved.png result-6k.png \
+  --preset 6k --approval approved.png.approval.json --runtime "$SR_WORK" \
   --trial-review crop-review.json
 ```
 
-The CLI verifies the reviewed crop bytes, its runtime report, original-source hash, model hash, tile settings, MPS execution, and an enlargement scale at least as demanding as the full run. It records the review hash in the full-run report. Changing the source, model, settings, or crop pixels invalidates that evidence. This enforces evidence consistency; the script cannot determine photographic realism. Final native-pixel review remains required.
+The CLI verifies the reviewed crop bytes, its runtime report, original-source hash, model hash, tile settings, MPS execution, and an enlargement scale at least as demanding as the full run. It records the review hash in the full-run report. Changing the source, model, settings, or crop pixels invalidates that evidence. This enforces evidence consistency; the script cannot determine photographic realism. Final native-pixel review remains required. MPS rejects insufficient final repair density before loading weights; existing output/report paths and unsupported color modes are rejected. Bind the neural report to finalization, or supply it as `composite_regions.py --base-report` before finalization.
 
 ## Storage and stability
 

@@ -1,4 +1,5 @@
 {
+  "image_sha256": "",
   "review_scale": "100% native pixels",
   "visual_contract": {
     "source_look": "camera_photo",
@@ -6,7 +7,7 @@
     "truth_mode": "creative_reconstruction",
     "source_evidence": "",
     "target_reason": "",
-    "detail_policy": ""
+    "detail_policy": "Specify final dimensions, viewing use when known, required focal-region detail, protected optical blur, truth mode and same-subject evidence; source dimensions alone cannot approve detail."
   },
   "appearance_checks": {
     "style_consistency": "pending",
@@ -27,9 +28,14 @@
   "regions": [
     {
       "name": "highest-risk-region",
-      "box": [0, 0, 512, 512],
+      "box": [
+        0,
+        0,
+        512,
+        512
+      ],
       "status": "pending",
-      "note": ""
+      "note": "Replace with source-native semantic/material observations and planned final-scale detail support, evidence paths/hashes and unresolved defects; source structure alone cannot approve final detail."
     }
   ],
   "people_review": {
@@ -50,5 +56,5 @@
       }
     ]
   },
-  "reviewer_note": ""
+  "reviewer_note": "Replace after source-native inspection. Photography supports at most6K. For nonphotographic12K detail, follow references/12k-quality.md: record all critical subjects/materials, every source join, actual source information and projected native repair density; later crop/final reviews must prove target-scale detail and focus continuity. Missing source semantics fails approval; a source pass never approves untested final detail."
 }

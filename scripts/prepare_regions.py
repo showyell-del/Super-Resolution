@@ -11,6 +11,7 @@ from pathlib import Path
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import local_file, new_task_directory, atomic_json
 
 
 def sha256(path: Path) -> str:
@@ -33,13 +34,16 @@ def main() -> None:
     if not isinstance(definitions, list) or not definitions:
         parser.error("Regions must be a non-empty JSON list")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
     names: set[str] = set()
     prepared = []
     for index, item in enumerate(definitions):
         name = str(item.get("name", "")).strip()
         if not name or name in names:
             parser.error(f"Region {index} needs a unique non-empty name")
+        try:
+            local_file(args.output_dir, name)
+        except ValueError as error:
+            parser.error(str(error))
         names.add(name)
         try:
             x, y, width, height = (int(item[key]) for key in ("x", "y", "width", "height"))
@@ -58,8 +62,6 @@ def main() -> None:
         right = min(image.width, x + width + args.context)
         bottom = min(image.height, y + height + args.context)
         filename = f"{name}-input.png"
-        path = args.output_dir / filename
-        image.crop((left, top, right, bottom)).save(path, compress_level=2)
         prepared.append({
             "name": name,
             "category": item.get("category", "semantic"),
@@ -67,13 +69,23 @@ def main() -> None:
             "target_box": [x, y, width, height],
             "crop_box": [left, top, right - left, bottom - top],
             "input": filename,
-            "input_sha256": sha256(path),
+            "input_sha256": None,
             "output": f"{name}-output.png",
             "status": "pending",
             "prompt": None,
             "review_note": None,
             "output_sha256": None,
         })
+
+    try:
+        new_task_directory(args.output_dir)
+    except (ValueError, FileExistsError) as error:
+        parser.error(str(error))
+    for item in prepared:
+        left, top, width, height = item["crop_box"]
+        path = local_file(args.output_dir, item["input"])
+        image.crop((left, top, left + width, top + height)).save(path, compress_level=2)
+        item["input_sha256"] = sha256(path)
 
     gross_crop_pixels = sum(item["crop_box"][2] * item["crop_box"][3] for item in prepared)
     manifest = {
@@ -90,7 +102,7 @@ def main() -> None:
         "regions": prepared,
     }
     path = args.output_dir / "regions-manifest.json"
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(path, manifest)
     print(path)
 
 

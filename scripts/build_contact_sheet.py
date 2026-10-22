@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import local_file, new_task_directory, atomic_json, box as validate_box
 
 
 STAGE_MIN_FACE_WIDTH = {"semantic": 80, "repair": 120, "final": 120}
@@ -67,7 +68,18 @@ def main() -> None:
     subjects = manifest.get("subjects") if isinstance(manifest, dict) else manifest
     if not isinstance(subjects, list) or not subjects:
         parser.error("Subject manifest must be a non-empty JSON list")
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        planned_ids = set()
+        for subject in subjects:
+            subject_id = subject.get("id", "")
+            local_file(args.output_dir, subject_id)
+            if subject_id in planned_ids or not subject_id.strip() or subject_id != subject_id.strip():
+                raise ValueError("Subjects require unique non-empty IDs without surrounding whitespace")
+            planned_ids.add(subject_id)
+            validate_box(subject.get("face_box"), image.size)
+        new_task_directory(args.output_dir)
+    except (ValueError, OSError, TypeError, AttributeError) as error:
+        parser.error(str(error))
 
     entries = []
     hashes = {}
@@ -84,7 +96,7 @@ def main() -> None:
         if x < 0 or y < 0 or width < 1 or height < 1 or x + width > image.width or y + height > image.height:
             parser.error(f"Subject {subject_id!r} face_box exceeds the image")
         crop = image.crop((x, y, x + width, y + height))
-        crop_path = args.output_dir / f"{subject_id}.png"
+        crop_path = local_file(args.output_dir, f"{subject_id}.png")
         crop.save(crop_path, compress_level=2)
         sharpness = normalized_sharpness(crop)
         hashes[subject_id] = difference_hash(crop)
@@ -168,7 +180,7 @@ def main() -> None:
         "failures": failures,
     }
     report_path = args.output_dir / "contact-sheet-report.json"
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(report_path, report)
     print(sheet_path)
     print(report_path)
     if failures:

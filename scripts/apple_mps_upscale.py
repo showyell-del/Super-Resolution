@@ -17,7 +17,8 @@ from PIL import Image
 from apple_preflight import require_apple_silicon
 from approve_semantic_master import REQUIRED_PEOPLE_CHECKS
 from finalize_delivery import validate_native_review
-from realesrgan_mps import RealESRGANMPS
+from pipeline_contract import (load_approval, verify_repairs, new_output, atomic_json,
+                               neural_contract_sha256, validate_resolution)
 
 EXPECTED_WEIGHTS_SHA256 = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
 
@@ -79,43 +80,16 @@ def main() -> None:
     parser.add_argument("--trial-review", type=Path,
                         help="byte-bound passing crop review; required for high-risk photographic full runs")
     args = parser.parse_args()
+    new_output(args.output)
+    new_output(args.output.with_suffix(args.output.suffix + ".mps-report.json"))
 
-    weights = args.weights or args.runtime / "weights" / "RealESRGAN_x4plus.pth"
-    require_apple_silicon(
-        [args.source, args.approval, args.output.parent, args.runtime, weights],
-        check_mps=True,
-    )
-    if not args.source.is_file():
-        parser.error(f"Missing source image: {args.source}")
-    if args.output.exists():
-        parser.error(f"Output already exists: {args.output}")
-    if not args.approval.is_file():
-        parser.error(f"Missing semantic-master approval: {args.approval}")
-    approval = json.loads(args.approval.read_text(encoding="utf-8"))
-    if approval.get("approval_version") != 3 or approval.get("approved") is not True:
-        parser.error("Semantic master is not approved")
-    if Path(approval.get("master", "")).resolve() != args.source.resolve():
-        parser.error("Approval belongs to a different semantic master")
-    source_hash = sha256(args.source)
-    if approval.get("master_sha256") != source_hash:
-        parser.error("Semantic master changed after native-pixel approval")
-    if not weights.is_file():
-        parser.error(f"Missing verified Real-ESRGAN model: {weights}")
-    weights_hash = sha256(weights)
-    if weights_hash != EXPECTED_WEIGHTS_SHA256:
-        parser.error(
-            f"Unexpected Real-ESRGAN model hash {weights_hash}; expected {EXPECTED_WEIGHTS_SHA256}"
-        )
-    if args.tile < 64 or args.tile_pad < 0:
-        parser.error("Tile must be at least 64 pixels and tile padding must be non-negative")
-
-    import cv2
-    import numpy as np
-    import torch
-
-    if not torch.backends.mps.is_available():
-        parser.error("Apple MPS is unavailable; CPU fallback is forbidden")
+    try:
+        approval = load_approval(args.approval, args.source)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     source_original = Image.open(args.source)
+    if source_original.mode not in {"RGB", "RGBA", "L", "LA"}:
+        parser.error("Unsupported input mode; explicitly convert with color management before inference")
     if args.trial_box:
         x, y, w, h = args.trial_box
         if x < 0 or y < 0 or w < 1 or h < 1 or x + w > source_original.width or y + h > source_original.height:
@@ -140,6 +114,40 @@ def main() -> None:
         parser.error("The neural delivery scale must be greater than 1 and at most 4")
     if target_width < 1 or target_height < 1:
         parser.error("Target dimensions must be positive")
+    try:
+        validate_resolution(approval, (target_width, target_height))
+    except ValueError as error:
+        parser.error(str(error))
+
+    weights = args.weights or args.runtime / "weights" / "RealESRGAN_x4plus.pth"
+    require_apple_silicon(
+        [args.source, args.approval, args.output.parent, args.runtime, weights],
+        check_mps=True,
+    )
+    source_hash = sha256(args.source)
+    if not weights.is_file():
+        parser.error(f"Missing verified Real-ESRGAN model: {weights}")
+    weights_hash = sha256(weights)
+    if weights_hash != EXPECTED_WEIGHTS_SHA256:
+        parser.error(
+            f"Unexpected Real-ESRGAN model hash {weights_hash}; expected {EXPECTED_WEIGHTS_SHA256}"
+        )
+    if args.tile < 64 or args.tile_pad < 0:
+        parser.error("Tile must be at least 64 pixels and tile padding must be non-negative")
+
+    import cv2
+    import numpy as np
+    import torch
+    from realesrgan_mps import RealESRGANMPS
+
+    if not torch.backends.mps.is_available():
+        parser.error("Apple MPS is unavailable; CPU fallback is forbidden")
+    if not args.trial_box and approval.get("repair_manifest"):
+        try:
+            verify_repairs(Path(approval["repair_manifest"]["path"]), args.source,
+                           target_size=(target_width, target_height))
+        except ValueError as error:
+            parser.error(str(error))
 
     if args.trial_review and args.trial_box:
         parser.error("A diagnostic crop cannot use another crop's approval")
@@ -191,6 +199,7 @@ def main() -> None:
         "trial_review_sha256": sha256(args.trial_review) if args.trial_review else None,
         "approval": str(args.approval.resolve()),
         "approval_sha256": sha256(args.approval),
+        "neural_contract_sha256": neural_contract_sha256(approval),
         "output": str(args.output.resolve()),
         "output_sha256": sha256(args.output),
         "weights": str(weights.resolve()),
@@ -208,7 +217,7 @@ def main() -> None:
         "elapsed_seconds": round(time.time() - started, 3),
     }
     report_path = args.output.with_suffix(args.output.suffix + ".mps-report.json")
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(report_path, report)
     print(args.output)
     print(report_path)
 

@@ -1,6 +1,32 @@
 {
   "review_scale": "100% native pixels",
   "image_sha256": "",
+  "global_checks": {
+    "geometry_and_perspective": "pending",
+    "line_topology_and_edge_ownership": "pending",
+    "repeated_structures": "pending",
+    "emitters_reflections_and_bloom": "not_applicable",
+    "organic_support_topology": "not_applicable",
+    "far_field_and_depth_falloff": "pending",
+    "protected_content": "pending"
+  },
+  "people_review": {
+    "checks": {
+      "eyes_and_gaze": "pending",
+      "mouth_and_teeth": "pending",
+      "skin_texture": "pending",
+      "identity_and_distinctness": "pending",
+      "hair_hands_and_anatomy": "pending",
+      "wardrobe_and_material_integration": "pending"
+    },
+    "subjects": [
+      {
+        "id": "person-001",
+        "status": "pending",
+        "note": ""
+      }
+    ]
+  },
   "appearance_checks": {
     "style_consistency": "pending",
     "material_construction": "pending",
@@ -10,10 +36,15 @@
   "regions": [
     {
       "name": "highest-risk-region",
-      "box": [0, 0, 512, 512],
+      "box": [
+        0,
+        0,
+        512,
+        512
+      ],
       "status": "pending",
-      "note": ""
+      "note": "Replace with final-scale structure AND effective-detail observations, evidence paths/hashes and unresolved defects; anatomical correctness alone is insufficient."
     }
   ],
-  "reviewer_note": ""
+  "reviewer_note": "Replace after actual inspection. Photography supports at most6K. For nonphotographic12K detail, follow references/12k-quality.md: all critical faces/materials, projected native repair density, paired source/result and half-size comparisons, every join, focus continuity. Missing or failed effective detail must fail spatial_detail_hierarchy/material_construction and the applicable people checks; no sharpness score can override it."
 }

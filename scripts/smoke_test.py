@@ -109,7 +109,7 @@ def check_semantic_canvas(workspace: Path, scripts: Path, source: Path) -> None:
     """Numeric fixture only: preserve native tile density, rounding, and alpha."""
     tiles = workspace / "tiles"
     run(str(scripts / "prepare_tiles.py"), str(source), str(tiles),
-        "--cols", "3", "--rows", "2", "--overlap", "32")
+        "--cols", "3", "--rows", "2", "--overlap", "32", "--context-reviewed")
     manifest = tiles / "manifest.json"
     data = json.loads(manifest.read_text(encoding="utf-8"))
     for tile in data["tiles"]:
@@ -173,13 +173,16 @@ def main() -> None:
     region_plan = json.loads((regions_dir / "regions-manifest.json").read_text(encoding="utf-8"))["planning"]
     if region_plan != {"region_count": 1, "gross_crop_pixels": 57600, "source_pixels": 230400, "gross_coverage_ratio": 0.25}:
         raise RuntimeError(f"Unexpected region workload proxy: {region_plan}")
-    crop = regions_dir / "center-input.png"
+    crop = args.workspace / "center-native-density.png"
+    with Image.open(regions_dir / "center-input.png") as pixels:
+        pixels.resize((640, 360), Image.Resampling.LANCZOS).save(crop)
     prompt = args.workspace / "region-prompt.txt"
     prompt.write_text("Preserve the exact deterministic fixture.", encoding="utf-8")
     run(str(scripts / "record_region.py"), str(regions_dir / "regions-manifest.json"), "center", str(crop), "--prompt-file", str(prompt), "--review-note", "Exact deterministic crop accepted.")
     normalized_review = args.workspace / "normalized-review.json"
     normalized_review.write_text(json.dumps({
         **visual_review(),
+        "image_sha256": hashlib.sha256(normalized.read_bytes()).hexdigest(),
         "review_scale": "100% native pixels",
         "subject_report_required": False,
         "global_checks": {
@@ -207,13 +210,24 @@ def main() -> None:
     run(str(scripts / "composite_regions.py"), str(regions_dir / "regions-manifest.json"), str(composite))
     enlarged_base = args.workspace / "enlarged-base.png"
     Image.open(normalized).resize((1280, 720), Image.Resampling.LANCZOS).save(enlarged_base)
-    enlarged_composite = args.workspace / "enlarged-composite.png"
+    # Numerical schema fixture only, not a claim of actual neural inference.
+    from pipeline_contract import WEIGHTS_SHA256
+    base_report = args.workspace / "fixture-mps-report.json"
+    base_report.write_text(json.dumps({
+        "device": "mps", "mps_fallback": False, "weights_sha256": WEIGHTS_SHA256,
+        "source_sha256": hashlib.sha256(normalized.read_bytes()).hexdigest(),
+        "approval_sha256": hashlib.sha256(normalized_approval.read_bytes()).hexdigest(),
+        "output_sha256": hashlib.sha256(enlarged_base.read_bytes()).hexdigest(),
+        "target": [1280, 720], "delivery_scale": 2, "trial_box": None,
+    }))
+    enlarged_composite = args.workspace / "delivery/enlarged-composite.png"
     run(
         str(scripts / "composite_regions.py"),
         str(regions_dir / "regions-manifest.json"),
         str(enlarged_composite),
         "--base", str(enlarged_base),
         "--approval", str(normalized_approval),
+        "--base-report", str(base_report),
     )
     with Image.open(enlarged_composite) as image:
         if image.size != (1280, 720):
@@ -289,11 +303,22 @@ def main() -> None:
         str(scripts / "record_region.py"), str(people_repairs / "regions-manifest.json"),
         "repair-a", str(people_repairs / "repair-a-input.png"),
         "--prompt-file", str(repair_prompt), "--review-note", "Subject a repair inspected.",
+        expect=2,
     )
+    dense_repair = args.workspace / "dense-repair.png"
+    Image.open(people_repairs / "repair-a-input.png").resize((360, 360), Image.Resampling.LANCZOS).save(dense_repair)
+    repair_subjects = args.workspace / "repair-subjects.json"
+    repair_subjects.write_text(json.dumps({"subjects": [{"id": "a", "face_box": [90, 90, 120, 120]}]}))
+    run(str(scripts / "build_contact_sheet.py"), str(dense_repair), str(repair_subjects),
+        str(args.workspace / "repair-contact"), "--stage", "repair", "--min-sharpness", "1", "--max-hash-distance", "0")
+    run(str(scripts / "record_region.py"), str(people_repairs / "regions-manifest.json"), "repair-a", str(dense_repair),
+        "--subject-report", str(args.workspace / "repair-contact/contact-sheet-report.json"),
+        "--prompt-file", str(repair_prompt), "--review-note", "Numeric density fixture only.")
 
     review = args.workspace / "native-review.json"
     review.write_text(json.dumps({
         **visual_review(),
+        "image_sha256": hashlib.sha256(people_path.read_bytes()).hexdigest(),
         "review_scale": "100% native pixels",
         "subject_report_required": True,
         "global_checks": {
@@ -353,9 +378,10 @@ def main() -> None:
     final_review = args.workspace / "final-review.json"
     final_review.write_text(json.dumps({
         "review_scale": "100% native pixels",
-        "image_sha256": hashlib.sha256(composite.read_bytes()).hexdigest(),
+        "image_sha256": hashlib.sha256(enlarged_composite.read_bytes()).hexdigest(),
         "appearance_checks": visual_review()["appearance_checks"],
-        "regions": [{"name": "fixture", "box": [0, 0, 640, 360], "status": "pass", "note": "Exact fixture inspected at delivery size."}],
+        "global_checks": json.loads(normalized_review.read_text())["global_checks"],
+        "regions": [{"name": "fixture", "box": [0, 0, 1280, 720], "status": "pass", "note": "Numeric fixture only."}],
         "reviewer_note": "Final graphic fixture accepted."
     }), encoding="utf-8")
     stale_review = args.workspace / "stale-final-review.json"
@@ -364,7 +390,9 @@ def main() -> None:
     stale_review.write_text(json.dumps(stale_data), encoding="utf-8")
     run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--operation-report", str(composite) + ".composite-report.json", expect=2)
     run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--final-review", str(stale_review), expect=2)
-    run(str(scripts / "finalize_delivery.py"), str(composite), str(final_report), "--width", "640", "--height", "360", "--final-review", str(final_review), "--operation-report", str(composite) + ".composite-report.json")
+    run(str(scripts / "finalize_delivery.py"), str(enlarged_composite), str(final_report), "--width", "1280", "--height", "720",
+        "--approval", str(normalized_approval), "--final-review", str(final_review),
+        "--operation-report", str(base_report), "--operation-report", str(enlarged_composite) + ".composite-report.json")
     print(json.dumps({"pass": True, "workspace": str(args.workspace.resolve())}, indent=2))
 
 

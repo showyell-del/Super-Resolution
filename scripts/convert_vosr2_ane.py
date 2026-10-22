@@ -16,6 +16,7 @@ import torch
 from safetensors import safe_open
 
 from apple_preflight import require_apple_silicon
+from ane_contract import PACKAGE_FILES
 
 
 DIT_SHA256 = "bdcaa81e4c675b6074de643e27daafe73eb8125d4d0264d1bf30a004e9644b71"
@@ -117,7 +118,7 @@ def convert_decoder(runtime: Path):
         outputs=[ct.TensorType(name="pixels")], convert_to="mlprogram",
         minimum_deployment_target=ct.target.macOS15,
         compute_precision=ct.precision.FLOAT16,
-        compute_units=ct.ComputeUnit.CPU_AND_NE,
+        compute_units=ct.ComputeUnit.CPU_AND_NE, skip_model_load=True,
     )
     return converted, list(sample.shape), VAE_SHA256
 
@@ -152,6 +153,7 @@ def main() -> None:
         converted, shape, weight_hash = convert_dit(runtime, int(args.component[-1]))
     converted.save(str(package))
     report = {"component": args.component, "package": str(package),
+              "package_files": {relative: sha256(package / relative) for relative in PACKAGE_FILES},
               "sample_output_shape": shape, "weight_sha256": weight_hash,
               "seconds": time.monotonic() - start,
               "status": "converted_not_yet_validated_on_target_device"}

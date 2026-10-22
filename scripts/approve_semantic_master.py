@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import verify_repairs, new_output, atomic_json, box
 
 
 REQUIRED_CHECKS = {
@@ -51,27 +52,8 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_repair_manifest(path: Path, master: Path) -> set[str]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if Path(str(data.get("source", ""))).resolve() != master.resolve():
-        raise ValueError("Repair manifest belongs to another semantic master")
-    if data.get("source_sha256") != sha256(master):
-        raise ValueError("Semantic master changed after repair regions were prepared")
-    covered: set[str] = set()
-    regions = data.get("regions")
-    if not isinstance(regions, list) or not regions:
-        raise ValueError("Repair manifest must contain at least one region")
-    for item in regions:
-        if item.get("status") != "accepted":
-            raise ValueError(f"Repair region {item.get('name', '<unnamed>')} is not accepted")
-        output = path.parent / str(item.get("output", ""))
-        if not output.is_file() or sha256(output) != item.get("output_sha256"):
-            raise ValueError(f"Repair region {item.get('name', '<unnamed>')} output is missing or changed")
-        subject_ids = item.get("subject_ids", [])
-        if not isinstance(subject_ids, list):
-            raise ValueError(f"Repair region {item.get('name', '<unnamed>')} has invalid subject_ids")
-        covered.update(str(subject_id).strip() for subject_id in subject_ids if str(subject_id).strip())
-    return covered
+def load_repair_manifest(path: Path, master: Path, subjects=None) -> set[str]:
+    return verify_repairs(path, master, subjects)
 
 
 def main() -> None:
@@ -104,6 +86,9 @@ def main() -> None:
         parser.error(f"Missing native-pixel review: {args.review}")
 
     review = json.loads(args.review.read_text(encoding="utf-8"))
+    if review.get("image_sha256") != sha256(args.master):
+        parser.error("Native review image hash does not match the current master")
+    new_output(output)
     if review.get("review_scale") != "100% native pixels":
         parser.error("review_scale must be exactly '100% native pixels'")
     visual = review.get("visual_contract")
@@ -136,6 +121,8 @@ def main() -> None:
     with Image.open(args.master) as image:
         width, height = image.size
         mode = image.mode
+        if mode not in {"RGB", "RGBA", "L", "LA"}:
+            parser.error("Unsupported mode; explicitly convert with color management before approval")
     regions = review.get("regions")
     if not isinstance(regions, list) or not regions:
         parser.error("At least one native-pixel review region is required")
@@ -145,15 +132,15 @@ def main() -> None:
             parser.error(f"Region {index} must be an object")
         name = str(region.get("name", "")).strip()
         note = str(region.get("note", "")).strip()
-        box = region.get("box")
+        region_box = region.get("box")
         if not name or name in names:
             parser.error(f"Region {index} needs a unique non-empty name")
         names.add(name)
         if region.get("status") != "pass" or not note:
             parser.error(f"Region {name!r} must have status pass and a non-empty note")
-        if not isinstance(box, list) or len(box) != 4 or not all(isinstance(value, int) for value in box):
+        if not isinstance(region_box, list) or len(region_box) != 4 or not all(type(value) is int for value in region_box):
             parser.error(f"Region {name!r} box must be [x,y,width,height] integers")
-        x, y, region_width, region_height = box
+        x, y, region_width, region_height = region_box
         if x < 0 or y < 0 or region_width < 1 or region_height < 1:
             parser.error(f"Region {name!r} has invalid bounds")
         if x + region_width > width or y + region_height > height:
@@ -171,6 +158,8 @@ def main() -> None:
             parser.error(str(exc))
 
     subject_report = None
+    if review.get("people_review") is not None and not args.subject_report:
+        parser.error("People review requires a matching --subject-report; failures cannot be ignored")
     if review.get("subject_report_required") is True and not args.subject_report:
         parser.error("This review requires --subject-report")
     if args.subject_report:
@@ -202,6 +191,11 @@ def main() -> None:
         report_subjects = {str(entry.get("id", "")).strip(): entry for entry in report_entries}
         if "" in report_subjects or len(report_subjects) != len(report_entries):
             parser.error("Subject report contains empty or duplicate IDs")
+        if args.repair_manifest:
+            try:
+                repair_subjects = load_repair_manifest(args.repair_manifest, args.master, report_subjects)
+            except ValueError as error:
+                parser.error(str(error))
         reviewed = people_review.get("subjects")
         if not isinstance(reviewed, list):
             parser.error("people_review.subjects must be a list")
@@ -209,20 +203,24 @@ def main() -> None:
         if len(reviewed_by_id) != len(reviewed) or set(reviewed_by_id) != set(report_subjects) or "" in reviewed_by_id:
             parser.error("people_review.subjects must match every subject-report ID exactly")
         for subject_id, entry in report_subjects.items():
+            try:
+                face = box(entry.get("face_box"), (width, height))
+            except ValueError as error:
+                parser.error(str(error))
             item = reviewed_by_id[subject_id]
             strategy = item.get("delivery_strategy")
             if item.get("status") != "pass" or not str(item.get("note", "")).strip():
                 parser.error(f"Subject {subject_id!r} needs status pass and a concrete note")
             if strategy not in VALID_SUBJECT_STRATEGIES:
                 parser.error(f"Subject {subject_id!r} has invalid delivery_strategy")
-            needs_repair = bool(entry.get("automated_failures"))
+            needs_repair = bool(entry.get("automated_failures")) or face[2] < 80
             if needs_repair and strategy != "final_registered_repair":
                 parser.error(f"Subject {subject_id!r} failed precheck and must use final_registered_repair")
             if strategy == "final_registered_repair" and subject_id not in repair_subjects:
                 parser.error(f"Subject {subject_id!r} is not covered by the accepted repair manifest")
 
     approval = {
-        "approval_version": 3,
+        "approval_version": 4,
         "approved": True,
         "approved_at_utc": datetime.now(timezone.utc).isoformat(),
         "master": str(args.master.resolve()),
@@ -240,7 +238,7 @@ def main() -> None:
         ),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(approval, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_json(output, approval)
     print(output)
 
 

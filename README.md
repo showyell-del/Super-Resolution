@@ -1,23 +1,30 @@
 # Super-Resolution
 
-Style-routed semantic reconstruction and verified neural enlargement for Apple Silicon.
+Style-aware semantic reconstruction and verified neural enlargement for Apple Silicon.
 
-The pipeline identifies the source and requested visual style, chooses the least editing work that meets the quality target, then selects a verified Apple Silicon route. Real-ESRGAN enlarges approved content; VOSR2 can creatively reconstruct missing photographic detail on MPS or a tested MPS–Neural Engine hybrid. Native-pixel review catches malformed faces, smeared clothing, false texture, broken lines, and style drift before delivery.
+The pipeline separates **plausible detail generation** from **pixel enlargement**. It classifies the requested look, repairs only necessary regions, approves the actual pixels, then runs one selected neural route. More pixels are not proof of recovered detail or photographic realism. For nonphotographic 12K-detail work, use the [effective-detail acceptance standard](references/12k-quality.md): source information, projected repair density, native material structure, paired comparisons and every join are reviewed separately from backend completion.
+
+
+For explicitly requested balanced creative enhancement, use [creative-balanced.md](references/creative-balanced.md): preserve facial structure, expression, composition and focus while accepting coherent invented texture. Keep strict photographic/effective-detail reviews as separate historical verdicts; do not present creative approval as authentic recovered detail.
+
+## Resolution routing
+
+The approved target look selects the limit: `camera_photo` supports a long edge up to **6144 pixels (6K)**; `render`, `illustration`, `graphic` and nonphotographic `mixed` support up to **12288 pixels (12K)**. A generated image with photographic style is also `camera_photo`. A scene with photographic subjects and graphic overlays follows the photographic route. Classify from actual pixels; do not relabel a photograph to bypass the limit.
+
+Oversized requests are rejected before inference; explicit width/height, registered composites and final delivery obey the same limit. No automatic resize or route substitution. See [resolution routing](references/resolution-routing.md).
 
 ## Requirements
 
-- Apple M-series Mac (`macOS`, `arm64`)
-- A work volume for model files, caches, scratch, and output; preflight reports available space on it and the macOS swap volume
-- Python 3.9+
-- PyTorch with MPS available
+- Apple M-series Mac, macOS, Python 3.9+, working PyTorch MPS
+- A work volume for runtimes, models, caches, scratch and results
+- For the VOSR2 ANE hybrid: macOS 15+, Core ML Tools 9.0 and pinned converted packages
 
-CUDA, CPU-only image inference, interpolation-only delivery, and resolution fallback are intentionally unsupported. The ANE hybrid requires macOS 15+, Core ML Tools 9.0, and separately converted pinned model packages.
+Preflight reports work-volume and system swap-volume space without a fixed threshold. CUDA, CPU-only image inference, silent backend/resolution substitution and interpolation-only enhancement are unsupported. Supported working modes are RGB, RGBA, L and LA; convert other modes explicitly with color management.
 
 ## Install
 
 ```bash
-git clone https://github.com/showyell-del/Super-Resolution.git \
-  ~/.codex/skills/super-resolution
+git clone https://github.com/showyell-del/Super-Resolution.git ~/.codex/skills/super-resolution
 cd ~/.codex/skills/super-resolution
 SR_WORK=/Volumes/work/Ai/Super-Resolution-runtime
 mkdir -p "$SR_WORK/tmp" "$SR_WORK/pip-cache"
@@ -28,96 +35,54 @@ TMPDIR="$SR_WORK/tmp" PIP_CACHE_DIR="$SR_WORK/pip-cache" \
 python scripts/stage_runtime.py "$SR_WORK"
 ```
 
-Change `SR_WORK` to your work volume. In Codex, invoke `$super-resolution` with an image, target size, and whether invented detail is allowed. The skill routes the image, records native-pixel reviews, and runs only the selected backend. Real-ESRGAN's weight is bundled; VOSR2 and its ANE packages require the separate setup below.
+Set `SR_WORK` to your work volume. In Codex, invoke `$super-resolution` with the image, target resolution and whether invented detail is permitted. Real-ESRGAN's weight is bundled; ANE setup is separate.
 
-## Workflow
+## Usage
 
-For an approved master, `--preset 6k` or `--preset 12k` sets the long edge to 6144 or 12288 pixels and keeps the source composition. The selected image must be large enough for a neural scale of at most 4×: for a 3:2 landscape, at least 1536×1024 for 6K or 3072×2048 for 12K. No smaller-resolution substitute is produced.
+1. **Inspect and route.** Preserve the intended medium, identities, wording, geometry and focus. Choose clean, local, global or evidence-preserving work. Initialize the small [job ledger](references/job-ledger.md) before trials or generation.
+2. **Repair selectively.** Generate only documented failures. Keep native repair density for the final canvas. People repairs require output-local subject evidence with faces at least 120px; geometry and IDs must match the replacement target.
+3. **Approve semantics.** Fill [native-review.json](assets/native-review.json), including the inspected image's SHA-256. For critical people, add a semantic subject report and explicit eyes/mouth/skin/anatomy/material checks. Scores do not approve appearance.
+4. **Enlarge once.** Choose approved Real-ESRGAN MPS, or creative VOSR2 MPS–ANE after a passing 4× crop trial. Never cascade neural enlargement.
+5. **Review final bytes.** Check every critical person, material, join and focus region at native pixels. Finalization checks execution lineage and all approved repairs. Each delivery directory must contain exactly one image.
 
-```bash
-python scripts/apple_mps_upscale.py approved.png result-6k.png \
-  --preset 6k --approval approved.png.approval.json --runtime "$SR_WORK"
-python scripts/apple_mps_upscale.py approved-3k.png result-12k.png \
-  --preset 12k --approval approved-3k.png.approval.json --runtime "$SR_WORK"
-```
-
-These commands perform a single MPS neural pass and write a hash-bound runtime report. The 6K and 12K presets are output sizes, not guarantees that missing faces or materials can be recovered; finish with native-pixel review before delivery. For creative photographic reconstruction, use the separately gated VOSR2 route below.
-Photographic people, or photographic enlargement above 2x, require a passing crop review before a full Real-ESRGAN run. Use `--trial-box X Y W H` to test an approved-source crop at 4x, inspect the actual pixels, then supply `--trial-review crop-review.json` for the full run. See the [crop review example](references/apple-runtime.md#photographic-crop-gate). A failed trial rejects that source/route pairing; when invented detail is authorized, reconstruct the recorded defects before testing the revised input.
-The 12K route requires a separately approved 3K-or-larger semantic master. Do not use a previous VOSR2 output as the input to another VOSR2 pass: repeating generative enlargement increases pixels without proving more authentic detail.
-When image generation is needed, preserve genuinely denser generated tiles with `stitch_tiles.py --output-scale`, and keep high-density face/material repairs for final-scale compositing. See [registered reconstruction](references/sparse-region-repair.md). This requires an available image-edit generator; it is not performed by the neural enlargement command alone.
-
-### 1. Preflight and normalize
+For an approved Real-ESRGAN master:
 
 ```bash
-python scripts/apple_preflight.py --check-mps --include-codex-imagegen \
-  --runtime /safe/volume/sr-runtime \
-  --report /safe/volume/job/preflight.json \
-  /absolute/input.png /safe/volume/job /absolute/output.png
-
-python scripts/normalize_canvas.py input.png normalized.png \
-  --target-width 3840 --target-height 2160
+python scripts/approve_semantic_master.py master.png native-review.json
+python scripts/apple_mps_upscale.py master.png /work/job/delivery/final.png \
+  --preset 6k --approval master.png.approval.json --runtime "$SR_WORK"
+python scripts/finalize_delivery.py /work/job/delivery/final.png /work/job/delivery/delivery.json \
+  --width 6144 --height 4096 --approval master.png.approval.json \
+  --final-review /work/job/final-review.json \
+  --operation-report /work/job/delivery/final.png.mps-report.json
 ```
 
-The normalizer crops to the exact ratio and never stretches geometry. Run `stage_runtime.py /safe/volume/sr-runtime` only when that selected runtime needs a verified model copy; an already verified staged model is reused.
+The example assumes a 3:2 master. The 6K preset uses a 6144-pixel long edge; the 12K preset is limited to nonphotographic targets. Both preserve aspect to the nearest pixel. Source density must support at most 4× enlargement: at least a 1536-pixel long edge for 6K or 3072 for nonphotographic 12K. These are execution/source-density floors, not effective-detail guarantees. The commands do not generate the manual review.
 
-### 2. Diagnose style and make one repair plan
+Photographic people or photographic enlargement above 2× require a passing `--trial-review` before the full MPS run; see the [crop gate](references/apple-runtime.md#photographic-crop-gate). Add subject/repair evidence to approval and finalization when applicable. For repairs, use a separate neural base and `composite_regions.py --base --base-report --approval`, then pass both operation reports to finalization.
 
-Inspect the normalized image at native pixels. Classify its look as photograph, render, illustration, graphic, or mixed, and record the requested target look and truth mode. Distinguish missing detail from intentional soft focus or artistic simplification. Record critical people and defective anatomy, garments, materials, lines, reflections, and focal environment regions before generation. See [visual routing](references/visual-routing.md) and the [layered prompt contract](references/prompt-system.md).
+## Routes and limits
 
-Compare a clean pass, sparse local repairs, and a broad whole-image edit before generating. The region manifest reports count and gross crop coverage to expose redundant work; it is a workload proxy, not an exact provider price. Test one representative crop only when the result could change the expensive plan. Reject smeared, pasted-on, or style-inconsistent detail before committing to a whole-image generation. Photographic faces below 80 pixels in the semantic master require a contextual group or individual repair; do not lower the threshold and do not shrink the accepted repair back into the master.
+- **Real-ESRGAN MPS:** enlarges an approved semantic master; it cannot guarantee faithful new facial or material detail.
+- **VOSR2 MPS–ANE hybrid:** reconstructs plausible photographic detail. Requires source approval, passing same-source crop review, pinned conversion evidence and a same-device package plan. It is not exact identity, logo or text restoration. See [ANE setup](references/vosr2-ane.md).
+- **MPS-only VOSR2:** retained as a separate [diagnostic control](references/vosr2-apple.md), not a current hash-gated delivery entrypoint.
+
+Compute-plan preferred devices are not execution traces or quality proof. Historical scene-specific successes and failures are recorded in [Agent.md](Agent.md); neither establishes universal realism or a promised runtime.
+
+Registered repairs must support the selected delivery scale at native density. The style-specific delivery limits apply regardless of source size or tile count.
+
+For nonphotographic targets, when both 12K and 6K are requested, derive the smaller version from an approved parent with `downsample_delivery.py`, then review and finalize it independently. See [delivery evidence](references/delivery-evidence.md) and [registered repairs](references/sparse-region-repair.md).
+
+## Verify
 
 ```bash
-python scripts/prepare_regions.py normalized.png assets/regions.json work/repair
-python scripts/record_region.py work/repair/regions-manifest.json region-name \
-  generated-region.png --prompt-file region-prompt.txt \
-  --review-note "Native-pixel anatomy and integration passed."
+mkdir -p /work/tests
+SR_TEST_ROOT=/work/tests python -m unittest discover -s tests -v
+python scripts/smoke_test.py /work/tests/new-empty-smoke-directory
 ```
 
-### 3. Approve semantics before enlargement
-
-```bash
-python scripts/build_contact_sheet.py semantic-master.png \
-  subject-manifest.json work/people --stage semantic
-
-python scripts/approve_semantic_master.py semantic-master.png native-review.json \
-  --subject-report work/people/contact-sheet-report.json \
-  --repair-manifest work/repair/regions-manifest.json
-```
-
-The review records the source and target look and passes checks for style, material construction, detail hierarchy, and optics or mark-making. The contact sheet measures face density, blur, and likely duplication, but never approves eyes, mouths, skin, identity, anatomy, or clothing. Those items are mandatory structured checks in `native-review.json` for photographic people.
-
-### 4. Run the selected neural route once
-
-For an approved master whose semantics are already sound, use Real-ESRGAN:
-
-```bash
-PYTORCH_ENABLE_MPS_FALLBACK=0 python scripts/apple_mps_upscale.py \
-  semantic-master.png mps-output.png \
-  --preset 6k \
-  --approval semantic-master.png.approval.json \
-  --runtime /safe/volume/sr-runtime
-
-python scripts/composite_regions.py work/repair/regions-manifest.json final.png \
-  --base mps-output.png --approval semantic-master.png.approval.json
-
-python scripts/finalize_delivery.py final.png delivery.json \
-  --width 6144 --height 3456 \
-  --final-review final-review.json \
-  --operation-report final.png.composite-report.json
-```
-
-Inspect the exact final pixels and fill [final-review.json](assets/final-review.json) with the final file's SHA-256, appearance passes, and inspected regions before delivery. If no repair pack is needed, review and finalize the MPS output directly. A local failure retries only that region; it never restarts the whole pipeline.
-
-For a photographic target that permits invented detail, use VOSR2 after a passing 4x crop trial. Prefer the [MPS–ANE hybrid](references/vosr2-ane.md) when its packages and target-device compute plan are verified; the [MPS-only route](references/vosr2-apple.md) remains a separate choice, never a silent fallback. Large upstream weights live on the work volume, not in this repository. One M2/16 GiB test of a synthetic three-person scene reached 6144×4096 in 463 seconds wall time with the hybrid and passed native-pixel review; MPS-only took 672 seconds of model processing on the same scene. Backend execution and image quality are separate verdicts: an ANE compute plan proves neither photographic realism nor that a visual defect was caused by ANE. This does not establish universal image quality or full-ANE execution. Do not run Real-ESRGAN after VOSR2 or use VOSR2 to recreate exact identities, text, or logos.
-
-A synthetic three-person scene completed semantic tile reconstruction, final-scale face/material repairs, and a single MPS enlargement to 12288×8192 on M2; its final native-pixel review passed. A separately reviewed 6144×4096 version was derived from that final without another neural run. This validates one creative reconstruction, not universal photographic 12K quality or factual restoration: an independent real-photo crop test still failed facial fidelity. A fresh public clone, isolated Python environment, dependency check, script regression, and real MPS inference were verified on M2/macOS 15.7.5; this installation check does not certify image appearance.
-
-## Resolution
-
-Registered tiling has no fixed conceptual canvas limit, so the pipeline can theoretically produce arbitrarily large outputs. Practical limits remain storage, unified memory, model context, file formats, runtime, and cross-region consistency. More pixels never substitute for semantic truth.
-
-See [SKILL.md](SKILL.md) for the execution contract.
+Lightweight tests validate contracts and failure behavior, not photographic quality or actual ANE placement. Source approvals use version 4 and delivery reports version 2; older unbound reports must not be relabeled as current evidence.
 
 ## License
 
-Project-authored files are licensed under [Apache-2.0](LICENSE). Third-party models and adapted components retain their own licenses and attribution.
+Project-authored files: [Apache-2.0](LICENSE). Third-party models and adapted components retain their licenses and attribution.

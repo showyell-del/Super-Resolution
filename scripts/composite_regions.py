@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Register and feather accepted sparse semantic regions onto a master image."""
+"""Register native-density repairs with disk-backed, exact float accumulation."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import math
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -13,174 +14,133 @@ import numpy as np
 from PIL import Image
 
 from apple_preflight import require_apple_silicon
+from pipeline_contract import (validate_resolution, sha256, local_file, new_output, verify_repairs, load_approval,
+                               verify_neural_report, preserve_mode, atomic_json)
 
 
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def register(reference: np.ndarray, edited: np.ndarray) -> tuple[np.ndarray, float, np.ndarray]:
-    ref_gray = cv2.cvtColor(reference, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
-    edit_gray = cv2.cvtColor(edited, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+def register(reference, edited):
+    ref_gray = cv2.cvtColor(reference, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
+    edit_gray = cv2.cvtColor(edited, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
     warp = np.eye(2, 3, dtype=np.float32)
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 150, 1e-6)
     correlation, warp = cv2.findTransformECC(ref_gray, edit_gray, warp, cv2.MOTION_AFFINE, criteria, None, 5)
-    aligned = cv2.warpAffine(
-        edited,
-        warp,
-        (reference.shape[1], reference.shape[0]),
-        flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP,
-        borderMode=cv2.BORDER_REFLECT_101,
-    )
+    aligned = cv2.warpAffine(edited, warp, (reference.shape[1], reference.shape[0]),
+                            flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT_101)
     return aligned, float(correlation), warp
 
 
-def feather_mask(width: int, height: int, feather: int) -> np.ndarray:
+def feather_mask(width, height, feather):
     if feather <= 0:
         return np.ones((height, width, 1), dtype=np.float32)
     x = np.minimum(np.arange(width), np.arange(width)[::-1]).astype(np.float32)
     y = np.minimum(np.arange(height), np.arange(height)[::-1]).astype(np.float32)
-    edge = np.minimum(y[:, None], x[None, :])
-    return np.clip(edge / feather, 0, 1)[..., None]
+    return np.clip(np.minimum(y[:, None], x[None, :]) / feather, 0, 1)[..., None]
 
 
-def main() -> None:
+def blend_target(result, aligned, crop_box, target_box, feather):
+    """Keep fractional overlap until final export, matching the original formula."""
+    x, y, _, _ = crop_box
+    tx, ty, tw, th = target_box
+    alpha = feather_mask(tw, th, min(feather, tw // 4, th // 4))
+    old = result[ty:ty + th, tx:tx + tw]
+    edited = aligned[ty-y:ty-y+th, tx-x:tx-x+tw].astype(np.float32)
+    result[ty:ty + th, tx:tx + tw] = old * (1 - alpha) + edited * alpha
+
+
+def compose(data, args, base_image):
+    width, height = base_image.size
+    scale = width / data["source_size"][0]
+    base_pixels = np.asarray(base_image.convert("RGB"), dtype=np.uint8)
+    reports = []
+    with tempfile.TemporaryDirectory(prefix="region-composite-", dir=args.output.parent) as temporary:
+        result = np.memmap(Path(temporary) / "canvas.f32", mode="w+", dtype=np.float32, shape=base_pixels.shape)
+        output = np.memmap(Path(temporary) / "canvas.u8", mode="w+", dtype=np.uint8, shape=base_pixels.shape)
+        try:
+            for row in range(0, height, 128):
+                result[row:row+128] = base_pixels[row:row+128]
+            for item in data["regions"]:
+                sx, sy, sw, sh = item["crop_box"]
+                x, y = round(sx * scale), round(sy * scale)
+                right, bottom = round((sx + sw) * scale), round((sy + sh) * scale)
+                cw, ch = right-x, bottom-y
+                with Image.open(local_file(args.manifest.parent, item["output"])) as generated:
+                    edited = np.asarray(generated.convert("RGB").resize((cw, ch), Image.Resampling.LANCZOS))
+                aligned, correlation, warp = register(base_pixels[y:bottom, x:right], edited)
+                drift = float(np.max(np.abs(np.linalg.svd(warp[:, :2], compute_uv=False) - 1)))
+                translation = max(abs(float(warp[0, 2])) / cw, abs(float(warp[1, 2])) / ch)
+                if correlation < args.min_correlation or drift > args.max_scale_error or translation > args.max_translation_ratio:
+                    raise ValueError(f"Region {item['name']} registration rejected")
+                tx, ty, tw, th = item["target_box"]
+                target = [round(tx * scale), round(ty * scale),
+                          round((tx + tw) * scale) - round(tx * scale),
+                          round((ty + th) * scale) - round(ty * scale)]
+                blend_target(result, aligned, [x, y, cw, ch], target, args.feather)
+                reports.append({"name": item["name"], "subject_ids": item.get("subject_ids", []),
+                                "source_crop_box": item["crop_box"], "source_target_box": item["target_box"],
+                                "composite_box": [x, y, cw, ch], "composite_target_box": target,
+                                "output_sha256": item["output_sha256"], "correlation": correlation,
+                                "scale_error": drift, "translation_ratio": translation, "warp": warp.tolist()})
+            for row in range(0, height, 128):
+                output[row:row+128] = np.clip(result[row:row+128], 0, 255).astype(np.uint8)
+            image = preserve_mode(Image.fromarray(np.asarray(output)), base_image)
+            options = {"compress_level": 2}
+            if base_image.info.get("icc_profile"):
+                options["icc_profile"] = base_image.info["icc_profile"]
+            image.save(args.output, **options)
+        finally:
+            result._mmap.close()
+            output._mmap.close()
+    return reports
+
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument(
-        "--base",
-        type=Path,
-        help="optional uniformly enlarged base; accepted high-density repairs are composited once at this scale",
-    )
-    parser.add_argument(
-        "--approval",
-        type=Path,
-        help="version 3 semantic approval; required with --base and bound to this repair manifest",
-    )
+    parser.add_argument("--base", type=Path)
+    parser.add_argument("--approval", type=Path)
+    parser.add_argument("--base-report", type=Path)
     parser.add_argument("--feather", type=int, default=32)
     parser.add_argument("--min-correlation", type=float, default=0.45)
     parser.add_argument("--max-translation-ratio", type=float, default=0.04)
     parser.add_argument("--max-scale-error", type=float, default=0.05)
     args = parser.parse_args()
-
-    data = json.loads(args.manifest.read_text(encoding="utf-8"))
-    source_path = Path(data["source"])
-    base_path = args.base or source_path
-    paths = [source_path, base_path, args.manifest, args.output.parent]
-    if args.approval:
-        paths.append(args.approval)
-    require_apple_silicon(paths)
-    if sha256(source_path) != data["source_sha256"]:
-        parser.error("Source changed after region preparation")
-    if not base_path.is_file():
-        parser.error(f"Missing base image: {base_path}")
-    if args.base:
-        if not args.approval or not args.approval.is_file():
-            parser.error("--approval is required when compositing onto an enlarged --base")
-        approval = json.loads(args.approval.read_text(encoding="utf-8"))
-        bound_repair = approval.get("repair_manifest") or {}
-        if approval.get("approval_version") != 3 or approval.get("approved") is not True:
-            parser.error("Semantic approval is invalid")
-        if Path(str(approval.get("master", ""))).resolve() != source_path.resolve():
-            parser.error("Semantic approval belongs to another source")
-        if approval.get("master_sha256") != data["source_sha256"]:
-            parser.error("Semantic approval source hash does not match the repair manifest")
-        if Path(str(bound_repair.get("path", ""))).resolve() != args.manifest.resolve():
-            parser.error("Semantic approval is not bound to this repair manifest")
-        if bound_repair.get("sha256") != sha256(args.manifest):
-            parser.error("Repair manifest changed after semantic approval")
-    source_image = Image.open(source_path)
-    base_image = Image.open(base_path)
-    source_width, source_height = source_image.size
-    base_width, base_height = base_image.size
-    scale_x = base_width / source_width
-    scale_y = base_height / source_height
-    if abs(scale_x - scale_y) > 1e-8:
-        parser.error("Base image must be a uniform enlargement of the manifest source")
-    scale = scale_x
-    base_pixels = np.asarray(base_image.convert("RGB"), dtype=np.uint8)
-    result = base_pixels.astype(np.float32)
-    reports = []
-
-    for item in data["regions"]:
-        if item.get("status") != "accepted":
-            parser.error(f"Region {item['name']} is not accepted")
-        edit_path = args.manifest.parent / item["output"]
-        if not edit_path.is_file() or sha256(edit_path) != item.get("output_sha256"):
-            parser.error(f"Region {item['name']} output is missing or changed")
-        source_x, source_y, source_width, source_height = item["crop_box"]
-        x = round(source_x * scale)
-        y = round(source_y * scale)
-        right = round((source_x + source_width) * scale)
-        bottom = round((source_y + source_height) * scale)
-        width = right - x
-        height = bottom - y
-        edited = np.asarray(Image.open(edit_path).convert("RGB").resize((width, height), Image.Resampling.LANCZOS))
-        reference = base_pixels[y:bottom, x:right]
-        try:
-            aligned, correlation, warp = register(reference, edited)
-        except cv2.error as exc:
-            parser.error(f"Registration failed for {item['name']}: {exc}")
-        singular_values = np.linalg.svd(warp[:, :2], compute_uv=False)
-        scale_error = float(np.max(np.abs(singular_values - 1)))
-        translation_ratio = max(abs(float(warp[0, 2])) / width, abs(float(warp[1, 2])) / height)
-        if correlation < args.min_correlation or scale_error > args.max_scale_error or translation_ratio > args.max_translation_ratio:
-            parser.error(
-                f"Region {item['name']} registration rejected: correlation={correlation:.3f}, "
-                f"scale_error={scale_error:.3%}, translation={translation_ratio:.3%}"
-            )
-        target_x, target_y, target_width, target_height = item["target_box"]
-        target_left = round(target_x * scale) - x
-        target_top = round(target_y * scale) - y
-        target_right = round((target_x + target_width) * scale) - x
-        target_bottom = round((target_y + target_height) * scale) - y
-        if not (0 <= target_left < target_right <= width and 0 <= target_top < target_bottom <= height):
-            parser.error(f"Region {item['name']} target box exceeds its registered crop")
-        alpha = np.zeros((height, width, 1), dtype=np.float32)
-        target_w = target_right - target_left
-        target_h = target_bottom - target_top
-        alpha[target_top:target_bottom, target_left:target_right] = feather_mask(
-            target_w, target_h, min(args.feather, target_w // 4, target_h // 4)
-        )
-        region_base = result[y:y + height, x:x + width]
-        result[y:y + height, x:x + width] = region_base * (1 - alpha) + aligned.astype(np.float32) * alpha
-        reports.append({
-            "name": item["name"],
-            "subject_ids": item.get("subject_ids", []),
-            "source_crop_box": item["crop_box"],
-            "source_target_box": item["target_box"],
-            "composite_box": [x, y, width, height],
-            "composite_target_box": [
-                x + target_left, y + target_top, target_w, target_h
-            ],
-            "output_sha256": item["output_sha256"],
-            "correlation": correlation,
-            "scale_error": scale_error,
-            "translation_ratio": translation_ratio,
-            "warp": warp.tolist(),
-        })
-
-    output_image = Image.fromarray(np.clip(result, 0, 255).astype(np.uint8))
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    save_args = {"compress_level": 2}
-    if base_image.info.get("icc_profile"):
-        save_args["icc_profile"] = base_image.info["icc_profile"]
-    output_image.save(args.output, **save_args)
-    report = {
-        "source": str(source_path.resolve()),
-        "source_sha256": data["source_sha256"],
-        "base": str(base_path.resolve()),
-        "base_sha256": sha256(base_path),
-        "scale": scale,
-        "manifest": str(args.manifest.resolve()),
-        "output": str(args.output.resolve()),
-        "output_sha256": sha256(args.output),
-        "feather": args.feather,
-        "regions": reports,
-    }
-    report_path = args.output.with_suffix(args.output.suffix + ".composite-report.json")
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.feather < 0 or any(not math.isfinite(v) for v in (
+            args.min_correlation, args.max_translation_ratio, args.max_scale_error)):
+        parser.error("Invalid registration/feather settings")
+    try:
+        new_output(args.output)
+        report_path = args.output.with_suffix(args.output.suffix + ".composite-report.json")
+        new_output(report_path)
+        data = json.loads(args.manifest.read_text())
+        source = Path(data["source"])
+        base = args.base or source
+        require_apple_silicon([source, base, args.output.parent])
+        base_hash = sha256(base)
+        with Image.open(base) as image:
+            if image.mode not in {"RGB", "RGBA", "L", "LA"}:
+                raise ValueError("Unsupported base mode; use an explicit color-managed conversion")
+            verify_repairs(args.manifest, source, target_size=image.size)
+            if args.base:
+                if not args.approval or not args.base_report:
+                    raise ValueError("Enlarged base requires --approval and --base-report")
+                approval = load_approval(args.approval, source)
+                validate_resolution(approval, image.size)
+                bound = approval.get("repair_manifest") or {}
+                if bound.get("sha256") != sha256(args.manifest) or Path(bound["path"]).resolve() != args.manifest.resolve():
+                    raise ValueError("Approval does not bind this repair manifest")
+                verify_neural_report(json.loads(args.base_report.read_text()), args.approval, approval, base_hash)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            reports = compose(data, args, image)
+        report = {"operation": "registered_composite", "source": str(source.resolve()),
+                  "source_sha256": data["source_sha256"], "base": str(base.resolve()), "base_sha256": base_hash,
+                  "base_report_sha256": sha256(args.base_report) if args.base_report else None,
+                  "manifest": str(args.manifest.resolve()), "manifest_sha256": sha256(args.manifest),
+                  "output": str(args.output.resolve()), "output_sha256": sha256(args.output),
+                  "feather": args.feather, "regions": reports}
+        atomic_json(report_path, report)
+    except (ValueError, OSError, KeyError, TypeError, cv2.error) as error:
+        parser.error(str(error))
     print(args.output)
     print(report_path)
 
